@@ -13,3 +13,15 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Secrets — real credentials must never be committed
+.env
+.env.*
+!.env.example
+backend/.env
+backend/node_modules/
+backend/dist/
+
+# Build outputs
+rust/*/target/
+app/build/
