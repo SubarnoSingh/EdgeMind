@@ -88,7 +88,7 @@ export class OpenAiCompatibleCloudLlm implements CloudLlmService {
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: question },
           ],
-          max_tokens: 1000,
+          max_completion_tokens: 1000,
         }),
         signal,
       });

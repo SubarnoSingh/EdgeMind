@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const gateway = new RealQdrantGateway(config.qdrantUrl, config.qdrantApiKey);
+    const gateway = new RealQdrantGateway(config.qdrantUrl, config.qdrantApiKey, config.embeddingDimension);
     const collections = await gateway.listCollections();
     console.log(`Qdrant Cloud: AUTHENTICATED — ${collections.length} collection(s):`);
     for (const name of collections) {

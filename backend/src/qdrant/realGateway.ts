@@ -12,9 +12,12 @@ function isUuidLike(value: unknown): value is string {
 export class RealQdrantGateway implements QdrantGateway {
   private readonly client: QdrantClient | null;
 
+  private readonly embeddingDimension: number;
+
   readonly configured: boolean;
 
-  constructor(url: string | null, apiKey: string | null) {
+  constructor(url: string | null, apiKey: string | null, embeddingDimension: number) {
+    this.embeddingDimension = embeddingDimension;
     if (url && apiKey) {
       this.client = new QdrantClient({ url, apiKey, timeout: 15000 });
       this.configured = true;
@@ -38,7 +41,7 @@ export class RealQdrantGateway implements QdrantGateway {
 
   async ensureCollection(name: string, dimension: number): Promise<void> {
     const client = this.requireClient();
-    const exists = await client.collectionExists(name);
+    const { exists } = await client.collectionExists(name);
     if (!exists) {
       await client.createCollection(name, {
         vectors: {
@@ -53,13 +56,17 @@ export class RealQdrantGateway implements QdrantGateway {
 
   async upsert(collection: string, points: CloudPoint[]): Promise<void> {
     if (points.length === 0) return;
-    // Payload-only points are legal in Qdrant (optional vectors): omit the
-    // vector entirely when no embedding provider is configured. The OpenAPI
-    // generated typing requires `vector`, so the boundary is cast once here.
+    // Points without a real embedding (device sync pushes, payload-first
+    // records) still require the `vector` field because the collection
+    // declares the named `semantic` vector. A deterministic zero vector of
+    // the configured dimension is a structural placeholder, NOT a real
+    // semantic embedding, and must never be treated as one.
     const clientPoints = points.map((p) => ({
       id: p.id,
       payload: p.payload,
-      ...(p.vector ? { vector: { semantic: p.vector } } : {}),
+      vector: p.vector
+        ? { semantic: p.vector }
+        : { semantic: new Array<number>(this.embeddingDimension).fill(0) },
     }));
     await this.requireClient().upsert(collection, { points: clientPoints as never });
   }

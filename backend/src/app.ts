@@ -45,7 +45,7 @@ export function buildApp(overrides: BuildOverrides = {}): BuiltApp {
   const qdrant =
     overrides.qdrant ??
     (config.qdrantUrl != null && config.qdrantApiKey != null
-      ? new RealQdrantGateway(config.qdrantUrl, config.qdrantApiKey)
+      ? new RealQdrantGateway(config.qdrantUrl, config.qdrantApiKey, config.embeddingDimension)
       : new UnconfiguredQdrantGateway());
 
   const llm =

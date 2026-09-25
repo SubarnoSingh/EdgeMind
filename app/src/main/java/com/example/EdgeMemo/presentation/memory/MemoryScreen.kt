@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,7 +75,8 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.isBusy) {
@@ -147,8 +148,8 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
 
             SyncSummarySection(state.syncSummary)
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { it.memoryId }) { memory ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items.forEach { memory ->
                     val score = state.results.firstOrNull { it.memory.memoryId == memory.memoryId }?.score
                     MemoryCard(memory, score)
                 }
