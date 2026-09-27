@@ -111,14 +111,15 @@ private fun SettingsCard(
     subtitle: String? = null,
     content: @Composable () -> Unit,
 ) {
+    // Use a more distinct surface color for better contrast in dark mode
+    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+    
     Surface(
         shape = RoundedCornerShape(EdgeDimens.cardRadius),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-        ),
-        tonalElevation = 1.dp,
+        color = containerColor,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
+        tonalElevation = 2.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -126,7 +127,7 @@ private fun SettingsCard(
             verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
         ) {
             SectionHeader(title = title, subtitle = subtitle)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
             content()
         }
     }
@@ -167,6 +168,7 @@ private fun AppearanceSection(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                     Text(
                         text = if (darkTheme) "Dark appearance" else "Light appearance",
                         style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = "tap to switch",
@@ -226,7 +228,11 @@ private fun SyncSection(viewModel: MemoryViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column {
-                Text("Cloud knowledge", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = "Cloud knowledge",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Text(
                     text = pullStatusText(state.pullStatus),
                     style = MaterialTheme.typography.bodySmall,

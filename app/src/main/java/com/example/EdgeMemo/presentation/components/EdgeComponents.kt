@@ -161,12 +161,13 @@ val SettingsIcon: ImageVector by lazy {
  * The standard EdgeMind surface: rounded, hairline-bordered, slightly
  * translucent so the ambient background breathes through, with calm
  * elevation. Primary content (answers, capture, memory cards).
+ * Uses surface color for clear separation from background in dark mode.
  */
 @Composable
 fun EdgeCard(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(EdgeDimens.cardRadius),
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+    containerColor: Color = MaterialTheme.colorScheme.surface,
     contentPadding: PaddingValues = PaddingValues(EdgeDimens.spacingL),
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -174,8 +175,8 @@ fun EdgeCard(
         modifier = modifier,
         shape = shape,
         color = containerColor,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-        tonalElevation = 1.dp,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        tonalElevation = 2.dp,
     ) {
         Column(modifier = Modifier.padding(contentPadding), content = content)
     }
@@ -184,12 +185,13 @@ fun EdgeCard(
 /**
  * Quieter secondary surface: status summaries, metadata sections — clearly
  * one step below [EdgeCard] in the visual hierarchy.
+ * Uses surfaceVariant for clear separation.
  */
 @Composable
 fun EdgeCardSecondary(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(16.dp),
-    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     contentPadding: PaddingValues = PaddingValues(EdgeDimens.spacingM),
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -197,7 +199,8 @@ fun EdgeCardSecondary(
         modifier = modifier,
         shape = shape,
         color = containerColor,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        tonalElevation = 1.dp,
     ) {
         Column(modifier = Modifier.padding(contentPadding), content = content)
     }
@@ -330,7 +333,7 @@ fun ModeSwitch(
 ) {
     Row(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f), RoundedCornerShape(EdgeDimens.pillRadius))
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(EdgeDimens.pillRadius))
             .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -344,7 +347,7 @@ fun ModeSwitch(
                             Modifier
                                 .shadow(2.dp, RoundedCornerShape(EdgeDimens.pillRadius))
                                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(EdgeDimens.pillRadius))
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f), RoundedCornerShape(EdgeDimens.pillRadius))
+                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(EdgeDimens.pillRadius))
                         } else {
                             Modifier
                         },
@@ -481,9 +484,9 @@ fun EdgeStatusChip(online: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * Circular floating icon control: neutral tinted surface + hairline border +
+ * Circular floating icon control: distinct surface + hairline border +
  * gentle shadow so it stays clearly visible over the ambient background in
- * BOTH light and dark themes (a bare icon was nearly invisible on light).
+ * BOTH light and dark themes.
  */
 @Composable
 private fun FloatingIconButton(
@@ -491,7 +494,7 @@ private fun FloatingIconButton(
     imageVector: ImageVector,
     contentDescription: String,
 ) {
-    val container = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+    val container = MaterialTheme.colorScheme.surfaceVariant
     val tint = MaterialTheme.colorScheme.onSurface
     Surface(
         modifier = Modifier
@@ -501,7 +504,8 @@ private fun FloatingIconButton(
         shape = CircleShape,
         color = container,
         contentColor = tint,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+        tonalElevation = 2.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(

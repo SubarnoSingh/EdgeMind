@@ -42,12 +42,13 @@ val LightCodeText = Color(0xFF323A4E)
 // ── Dark theme ─────────────────────────────────────────────────────────────
 // A deliberate dark treatment (not an inversion): near-black charcoal with
 // muted purple/blue tints, matching EdgeMind's engineering-tool identity.
+// Surface hierarchy improved for better contrast: Background < Surface < SurfaceVariant < SurfaceHigh
 
 val DarkBackground = Color(0xFF0D1017)
-val DarkSurface = Color(0xFF151A24)
-val DarkSurfaceVariant = Color(0xFF1D2433)
-val DarkSurfaceHigh = Color(0xFF262E40)
-val DarkOutline = Color(0xFF2B3448)
+val DarkSurface = Color(0xFF1A1F2E)
+val DarkSurfaceVariant = Color(0xFF222838)
+val DarkSurfaceHigh = Color(0xFF2D3448)
+val DarkOutline = Color(0xFF3A4258)
 val DarkOnSurface = Color(0xFFE7EBF5)
 val DarkOnSurfaceVariant = Color(0xFF9AA5BC)
 

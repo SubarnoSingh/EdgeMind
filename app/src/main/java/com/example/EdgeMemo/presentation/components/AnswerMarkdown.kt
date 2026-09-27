@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -201,6 +202,7 @@ private fun BlockRenderer(node: Node, palette: InlinePalette) {
         is Paragraph -> Text(
             text = inlineAnnotated(node, palette),
             style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         is FencedCodeBlock -> CodeBlock(node.literal)
         is IndentedCodeBlock -> CodeBlock(node.literal)
@@ -211,16 +213,21 @@ private fun BlockRenderer(node: Node, palette: InlinePalette) {
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
         )
         is BlockQuote -> QuoteBlock(node, palette)
-        is HtmlBlock -> Text(replaceMathCommands(node.literal).trim(), style = MaterialTheme.typography.bodyLarge)
+        is HtmlBlock -> Text(
+            text = replaceMathCommands(node.literal).trim(),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         is Text -> Text(
             text = inlineAnnotated(node, palette),
             style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         else -> {
             // Unknown block: render its inline text so nothing is silently lost.
             val text = node.firstChild?.let { inlineAnnotated(it, palette) }
             if (!text.isNullOrBlank()) {
-                Text(text = text, style = MaterialTheme.typography.bodyLarge)
+                Text(text = text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -240,6 +247,7 @@ private fun HeadingBlock(node: Heading, palette: InlinePalette) {
             text = inlineAnnotated(node, palette),
             style = style,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -274,6 +282,7 @@ private fun ListBlock(
                             Text(
                                 text = inlineAnnotated(content, palette),
                                 style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
@@ -304,7 +313,15 @@ private fun QuoteBlock(node: BlockQuote, palette: InlinePalette) {
         ) {
             val children = node.firstChild?.let { NodeListOf(it) } ?: NodeListOf(node)
             children.forEach { child ->
-                BlockRenderer(node = child, palette = palette)
+                // Pass color explicitly to nested blocks
+                when (child) {
+                    is Paragraph -> Text(
+                        text = inlineAnnotated(child, palette),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    )
+                    else -> BlockRenderer(node = child, palette = palette)
+                }
             }
         }
     }
