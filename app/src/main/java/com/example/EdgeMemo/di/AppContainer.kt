@@ -23,6 +23,7 @@ import com.example.EdgeMemo.data.cloud.UnimplementedCloudKnowledgeRemoteDataSour
 import com.example.EdgeMemo.data.conflict.DefaultConflictResolver
 import com.example.EdgeMemo.data.conflict.RoomConflictRepository
 import com.example.EdgeMemo.data.connectivity.AndroidConnectivityMonitor
+import com.example.EdgeMemo.data.connectivity.ConnectivityStatusFlow
 import com.example.EdgeMemo.data.document.ContentResolverDocumentReader
 import com.example.EdgeMemo.data.document.DocumentExtractorRegistry
 import com.example.EdgeMemo.data.document.MarkdownDocumentExtractor
@@ -214,6 +215,9 @@ class AppContainer(context: Context) {
      * real backend exists (see WORKING.md).
      */
     private val connectivityMonitor: ConnectivityMonitor = AndroidConnectivityMonitor(appContext)
+
+    /** App-scoped reactive connectivity state for UI status (header chip). */
+    val connectivityStatus = ConnectivityStatusFlow(appContext)
 
     private val cloudAnswer: CloudAnswerDataSource = if (cloudBackendUrl.isBlank()) {
         UnimplementedCloudAnswerDataSource()

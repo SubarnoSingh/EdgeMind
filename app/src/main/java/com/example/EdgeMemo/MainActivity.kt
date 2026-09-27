@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +113,7 @@ private fun EdgeMindRoot(container: com.example.EdgeMemo.di.AppContainer) {
 
     var mode by remember { mutableStateOf(EdgeMode.ASK) }
     var showSettings by remember { mutableStateOf(false) }
+    val online by container.connectivityStatus.isOnline.collectAsState()
 
     // Keep system-bar icon contrast in sync with the IN-APP theme toggle
     // (default edge-to-edge styles follow the system dark mode, which can
@@ -150,6 +152,7 @@ private fun EdgeMindRoot(container: com.example.EdgeMemo.di.AppContainer) {
                         onModeChange = { mode = it },
                         onOpenSettings = { showSettings = true },
                         modifier = Modifier.statusBarsPadding(),
+                        online = online,
                     )
                     Crossfade(
                         targetState = mode,

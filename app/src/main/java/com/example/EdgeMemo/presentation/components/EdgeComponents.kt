@@ -382,11 +382,11 @@ fun ModeSwitch(
  * Lightweight floating header:
  *
  *   [theme]            [ Ask | Memory ]            [settings]
+ *              [ EDGE READY / OFFLINE ]
  *
- * Three separate floating controls — NOT one giant capsule. The theme and
- * settings controls are circular tinted buttons; the Ask/Memory segmented
- * switch stays the visual anchor, truly centered by the outer Box. Every
- * control carries its own subtle surface so it reads in both themes.
+ * Three separate floating controls — NOT one giant capsule — with a small
+ * subordinate connectivity chip beneath the centered switch. Every control
+ * carries its own subtle surface so it reads in both themes.
  */
 @Composable
 fun EdgeTopBar(
@@ -396,36 +396,86 @@ fun EdgeTopBar(
     onModeChange: (EdgeMode) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    online: Boolean = true,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = EdgeDimens.spacingM, vertical = EdgeDimens.spacingS),
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = EdgeDimens.spacingM, vertical = EdgeDimens.spacingS),
         ) {
-            FloatingIconButton(
-                onClick = onToggleTheme,
-                imageVector = if (darkTheme) SunIcon else MoonIcon,
-                contentDescription = if (darkTheme) {
-                    "Switch to light appearance"
-                } else {
-                    "Switch to dark appearance"
-                },
-            )
-            FloatingIconButton(
-                onClick = onOpenSettings,
-                imageVector = SettingsIcon,
-                contentDescription = "Settings",
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                FloatingIconButton(
+                    onClick = onToggleTheme,
+                    imageVector = if (darkTheme) SunIcon else MoonIcon,
+                    contentDescription = if (darkTheme) {
+                        "Switch to light appearance"
+                    } else {
+                        "Switch to dark appearance"
+                    },
+                )
+                FloatingIconButton(
+                    onClick = onOpenSettings,
+                    imageVector = SettingsIcon,
+                    contentDescription = "Settings",
+                )
+            }
+            ModeSwitch(
+                selected = mode,
+                onSelect = onModeChange,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
-        ModeSwitch(
-            selected = mode,
-            onSelect = onModeChange,
-            modifier = Modifier.align(Alignment.Center),
+        EdgeStatusChip(online = online, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/**
+ * Tiny subordinate status chip under the header controls. Driven ONLY by the
+ * real connectivity StateFlow — never faked. Green dot + "EDGE READY" while
+ * online, amber dot + "OFFLINE" otherwise, matching the app's semantic
+ * accent language (amber already means offline/local in the Ask hints).
+ */
+@Composable
+fun EdgeStatusChip(online: Boolean, modifier: Modifier = Modifier) {
+    val edgeColors = LocalEdgeColors.current
+    val label: String
+    val color: Color
+    val container: Color
+    if (online) {
+        label = "EDGE READY"
+        color = edgeColors.positive
+        container = edgeColors.positiveContainer.copy(alpha = 0.85f)
+    } else {
+        label = "OFFLINE"
+        color = MaterialTheme.colorScheme.tertiary
+        container = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
+    }
+    Row(
+        modifier = modifier
+            .semantics { contentDescription = if (online) "Edge ready, online" else "Offline" }
+            .background(container, RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Box(
+            Modifier
+                .size(5.dp)
+                .background(color.copy(alpha = 0.9f), CircleShape),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            letterSpacing = 0.8.sp,
+            color = color,
         )
     }
 }
