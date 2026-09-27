@@ -1,0 +1,2 @@
+# Nmap 7.991 scan initiated Sun Sep 27 11:08:00 2026 as: nmap -p 39971 --open -oL /tmp/kilo/nmap.txt 192.168.29.0/24
+# Nmap done at Sun Sep 27 11:08:03 2026 -- 256 IP addresses (7 hosts up) scanned in 3.31 seconds
