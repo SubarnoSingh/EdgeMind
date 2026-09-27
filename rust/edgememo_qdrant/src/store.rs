@@ -108,9 +108,10 @@ pub fn optimize(shard: &EdgeShard) -> Result<()> {
     Ok(())
 }
 
-/// Force a synchronous flush of WAL + segments. Drop already flushes; kept
-/// for explicit control in later phases (batched ingestion).
-#[allow(dead_code)]
+/// Force a synchronous flush of WAL + segments. qdrant-edge only persists on
+/// graceful Drop or explicit flush, and Android process deaths run neither;
+/// the Android store flushes after every write batch to keep vectors
+/// retrievable after restarts.
 pub fn flush(shard: &EdgeShard) -> Result<()> {
     shard.flush().map_err(EdgeError::Qdrant)
 }

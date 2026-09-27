@@ -5,7 +5,115 @@ commands below unless explicitly marked NOT VERIFIED.
 
 ---
 
+## UI redesign + repair pass (presentation layer, uncommitted)
+
+### Previous pass (kept)
+
+- **Design system** — `ui/theme/`: EdgeMind light palette + deliberate dark
+  palette (charcoal `#0D1017`, surfaces `#151A24`/`#1D2433`, periwinkle
+  `#A8B6F4`), Material dynamic color OFF, new typography scale,
+  `LocalEdgeColors` for positive/code/accent tokens.
+- **Component library** — `presentation/components/EdgeComponents.kt`
+  (EdgeCard/EdgeCardSecondary, StatusChip, PillButton/TonalPill/IconPill,
+  ModeSwitch, SectionHeader, TechLabel, locally drawn Sun/Moon/Settings
+  icons).
+- **Answer renderer** — `AnswerMarkdown.kt`: commonmark AST → Compose +
+  `[n]` citation highlighting + LaTeX→Unicode math layer. Pinned by
+  `MarkdownMathTest`.
+- **MemoryScreen** — single LazyColumn: search, Capture/Import/Pull
+  cloud/Conflicts pills, live policy preview, ingestion progress, sync
+  summary, memory cards with provenance/policy chips. Functionality
+  unchanged.
+- `app_name` → "EdgeMind"; unused template `colors.xml` removed.
+
+### Repair pass (this session)
+
+- **Ask conversation state fixed** — `AskUiState` gained
+  `submittedQuestion` (the submitted query) separated from `question` (the
+  live input text). `AskViewModel.ask()` moves the query into
+  `submittedQuestion` and clears the input, so the user message is rendered
+  exactly once, above the answer, and survives scrolling/recomposition.
+  New tests: `askMovesQuestionIntoConversationAndClearsInput`,
+  `errorPathStillKeepsTheSubmittedQuestionVisible`; `clearResetsToIdle`
+  also asserts the conversation is reset.
+- **AskScreen conversation** — question bubble → busy indicator → answer
+  card → sources → "New question", all as stable keyed LazyColumn items;
+  auto-scroll follows the newest conversation content only (input edits no
+  longer trigger scrolling); greeting now persists while typing and only
+  yields to the conversation after submit; greeting hour is computed per
+  recomposition (no stale `remember`).
+- **Floating header** — `EdgeTopBar` is no longer one full-width capsule:
+  three separate floating controls — circular theme button (left), truly
+  centered Ask|Memory ModeSwitch, circular settings button (right) — each
+  with its own tinted surface, hairline border and gentle shadow. The theme
+  control uses a neutral onSurface-α container that stays visible in both
+  themes; ModeSwitch carries semantics (contentDescription/selected) and a
+  44dp touch target.
+- **Gradients tuned** — light base `#F1F4FA` (cool white) with five large
+  low-alpha radial fields (blue, lavender/periwinkle, pink/lilac, pale
+  cyan, cool-white lift); dark base `#0D1017` with five fields (indigo,
+  violet, deep blue, restrained magenta/lilac, bottom depth wash). Still
+  near-flat at first glance by design.
+- **Theme/system-bar consistency** — `MainActivity` syncs status/nav-bar
+  icon appearance with the in-app toggle via `WindowCompat` insets
+  controller, and paints the launch window the saved theme color before
+  Compose draws (no white flash in dark mode). `values/themes.xml` and
+  `values-night/themes.xml` carry matching `android:windowBackground`.
+- **Settings reorganized** — Appearance → Personalization (Name field,
+  persisted in `SharedPreferences("edgemind_ui", "profile_name")`, never
+  touches the memory DB) → Memory → Synchronization → Ask behavior →
+  About. Greeting uses the stored name (`greetingFor`), generic when blank.
+
+### Stale Memory-tab state fix (after 30-point device verification)
+
+- **Defect**: after "Save to memory" on the Ask screen, the Memory tab showed
+  "0 memories" until Pull cloud (or another VM action) reloaded it. Data was
+  never lost (Room + qdrant persisted correctly); the Activity-scoped
+  `MemoryViewModel` simply never observed repository mutations made by other
+  paths (`CacheCloudAnswerUseCase` → `CloudKnowledgeWriter`).
+- **Fix**: `MemoryScreen` reloads via `LaunchedEffect(Unit) {
+  viewModel.refresh() }` every time it becomes visible (tab switch / return
+  from Settings). No polling, no delays, no schema or architecture changes.
+- **Regression tests**: `MemoryViewModelRefreshTest` (4 tests, real Room +
+  real qdrant-edge + real embedding): saved-cloud-answer appears after
+  refresh; repeated refresh never duplicates cards; delete/create stay
+  correct across refreshes; cloud pull updates the list and survives a
+  follow-up refresh.
+- Host suite: **244 tests, 0 failures** (was 240). `:app:assembleDebug` and
+  `:app:lintDebug` BUILD SUCCESSFUL.
+- **Device re-verified (Xiaomi 2109119DI, live backend + real cloud LLM)**:
+  Ask → cloud question (quantum) → "Cloud answer · not verified locally" →
+  Save to memory → Memory tab immediately showed "3 memories · on this
+  device" with the new card (title/type/origin/policy/relative time correct),
+  no pull needed; tab cycling produced no duplicate cards; theme toggle,
+  greeting, input clearing, local RAG answer + citations, sync summary all
+  re-checked; zero crashes.
+
+### NOT VERIFIED (this session)
+
+- **Physical device** — `adb devices` is empty; no phone attached to this
+  machine (USB bus shows only mouse/keyboard/camera). The checklist
+  (dark/light landing, toggle visibility, header alignment, keyboard +
+  long/short query, name persistence across restart, local/cloud answer,
+  save, memory, sync) was NOT re-run after this pass. All changes are
+  unit-tested and build/lint-clean only.
+
+### Native fix from the previous pass (kept, non-UI)
+
+- **Defect**: Qdrant Edge did NOT persist vectors across Android process
+  restarts. `EdgeShard` has no WAL replay on load; it persists only on
+  graceful Drop or explicit flush, and Android process deaths run neither.
+  Verified on two physical devices (OPPO CPH2723 + Xiaomi 2109119DI).
+- **Fix**: `store::flush` exported as `nativeFlush` via JNI;
+  `QdrantEdgeVectorStore` flushes after every upsert batch and delete.
+  Pinned by `QdrantEdgePersistenceTest.vectorSurvivesWithoutGracefulClose`.
+- Host suite: **240 tests, 0 failures** (was 238; +2 Ask conversation
+  tests). `:app:assembleDebug` and `:app:lintDebug` BUILD SUCCESSFUL.
+
+---
+
 ## Phase 1 — Qdrant Edge spike (complete)
+
 
 ### Verified working
 

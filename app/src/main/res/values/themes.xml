@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- The launch window background matches the EdgeMind light base so cold
+         start never flashes white over the design. Dark variant lives in
+         values-night; the in-app toggle is handled in MainActivity. -->
+    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F1F4FA</item>
+    </style>
+
 </resources>

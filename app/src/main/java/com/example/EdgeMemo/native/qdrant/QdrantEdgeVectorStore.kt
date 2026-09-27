@@ -76,6 +76,11 @@ class QdrantEdgeVectorStore(
                 for (point in points) {
                     NativeBridge.nativeUpsert(current, point.id, point.vector)
                 }
+                // qdrant-edge persists only on graceful Drop or explicit flush;
+                // Android process deaths run neither, and EdgeShard has no WAL
+                // replay on load. Flushing here keeps the Phase-1 invariant
+                // (insert → restart → search) true on-device.
+                NativeBridge.nativeFlush(current)
             }
         }
     }
@@ -91,7 +96,9 @@ class QdrantEdgeVectorStore(
     override suspend fun delete(id: String) {
         mutex.withLock {
             withContext(dispatcher) {
-                NativeBridge.nativeDelete(requireHandle(), id)
+                val current = requireHandle()
+                NativeBridge.nativeDelete(current, id)
+                NativeBridge.nativeFlush(current)
             }
         }
     }

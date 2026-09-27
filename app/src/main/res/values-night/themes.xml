@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- System-dark launch window background; prevents a white flash when the
+         OS is in dark mode before Compose takes over. -->
+    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#0D1017</item>
+    </style>
+
+</resources>

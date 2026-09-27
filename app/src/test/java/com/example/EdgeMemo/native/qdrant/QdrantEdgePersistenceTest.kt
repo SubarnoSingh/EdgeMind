@@ -71,6 +71,27 @@ class QdrantEdgePersistenceTest {
                     NativeBridge.nativeClose(shard)
                 }
 
+                // Simulates an Android process death: upserts happen (with the
+                // store's flush-after-upsert) and the JVM exits WITHOUT any
+                // close/Drop, exactly like a killed Android process.
+                "crashwrite" -> {
+                    persistDir.mkdirs()
+                    val shard = NativeBridge.nativeCreate(persistDir.absolutePath, DIMENSION)
+                    NativeBridge.nativeUpsert(
+                        shard,
+                        "51",
+                        floatArrayOf(1.0f, 0.0f, 0.0f, 0.0f),
+                    )
+                    NativeBridge.nativeUpsert(
+                        shard,
+                        "52",
+                        floatArrayOf(0.0f, 1.0f, 0.0f, 0.0f),
+                    )
+                    NativeBridge.nativeFlush(shard)
+                    // No nativeClose — the JVM exit releases the directory
+                    // lock without ever dropping the shard.
+                }
+
                 "verify" -> {
                     val shard = NativeBridge.nativeOpen(persistDir.absolutePath)
                     val count = NativeBridge.nativeCount(shard)
@@ -186,6 +207,28 @@ class QdrantEdgePersistenceTest {
             assertEquals(0L, store.count())
             assertTrue(store.search(floatArrayOf(1f, 0f, 0f, 0f), 5).isEmpty())
             store.close()
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun vectorSurvivesWithoutGracefulClose() = runBlocking {
+        // Simulates an Android process death: the writing process exits
+        // without any close/Drop (no graceful flush), so the persisted points
+        // must come from the store's flush-after-upsert alone.
+        val dir = newTempDir("edgememo-no-close")
+        try {
+            val lib = TestNativeLoader.nativeLibraryPath()
+            val crashWrite = runChild(lib, "crashwrite", dir)
+            assertTrue("crash-write process must succeed", crashWrite.isSuccess)
+
+            val second = QdrantEdgeVectorStore(dir)
+            second.open()
+            assertEquals("points must survive a process death without close", 2L, second.count())
+            val top = second.search(floatArrayOf(0.9f, 0.1f, 0.1f, 0f), 2)
+            assertEquals("51", top.first().id)
+            second.close()
         } finally {
             dir.deleteRecursively()
         }

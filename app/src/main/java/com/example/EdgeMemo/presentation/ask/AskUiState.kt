@@ -16,7 +16,10 @@ enum class AskPhase {
 }
 
 data class AskUiState(
+    /** Live text of the bottom input field. Cleared on submit. */
     val question: String = "",
+    /** The last submitted query, rendered as the conversation's user message. */
+    val submittedQuestion: String? = null,
     val phase: AskPhase = AskPhase.IDLE,
     val answer: String = "",
     val sources: List<SourceReference> = emptyList(),
@@ -37,6 +40,10 @@ data class AskUiState(
 
     val hasResult: Boolean
         get() = phase == AskPhase.SUCCESS || phase == AskPhase.INSUFFICIENT
+
+    /** True once any conversation content exists (a question was submitted). */
+    val hasConversation: Boolean
+        get() = submittedQuestion != null || isBusy || hasResult || errorMessage != null
 
     val isCloudAnswer: Boolean
         get() = escalation is CloudEscalation.Answered

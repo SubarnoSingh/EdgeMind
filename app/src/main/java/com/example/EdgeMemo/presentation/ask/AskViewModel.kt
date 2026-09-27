@@ -33,6 +33,10 @@ class AskViewModel(
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
+                    // The submitted query moves into the conversation history;
+                    // the input field is cleared so it is never shown twice.
+                    question = "",
+                    submittedQuestion = question,
                     phase = AskPhase.RETRIEVING,
                     answer = "",
                     sources = emptyList(),

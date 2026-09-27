@@ -181,6 +181,18 @@ unsafe extern "system" fn native_optimize(mut env: JNIEnv, _class: JClass, handl
     }
 }
 
+// Persists WAL + segment state so data survives a process death without a
+// graceful Drop (Android kills do not run Drop; EdgeShard has no WAL replay).
+unsafe extern "system" fn native_flush(mut env: JNIEnv, _class: JClass, handle: jlong) {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        store::flush(shard)
+    });
+    if let Err(err) = result {
+        throw_err(&mut env, err);
+    }
+}
+
 unsafe extern "system" fn native_close(mut env: JNIEnv, _class: JClass, handle: jlong) {
     let result = guard(|| {
         let ptr = shard_ptr(handle)?;
@@ -218,6 +230,7 @@ fn jni_methods() -> Vec<jni::NativeMethod> {
             "(J)V",
             native_optimize as *const () as usize,
         ),
+        ("nativeFlush", "(J)V", native_flush as *const () as usize),
         ("nativeClose", "(J)V", native_close as *const () as usize),
     ] {
         methods.push(jni::NativeMethod {

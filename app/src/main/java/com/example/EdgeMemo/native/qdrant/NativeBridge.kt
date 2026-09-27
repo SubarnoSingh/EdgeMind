@@ -8,6 +8,7 @@ internal object NativeBridge {
     external fun nativeSearch(handle: Long, vector: FloatArray, limit: Int): Array<SearchResult>
     external fun nativeCount(handle: Long): Long
     external fun nativeOptimize(handle: Long)
+    external fun nativeFlush(handle: Long)
     external fun nativeClose(handle: Long)
 
     fun load() {

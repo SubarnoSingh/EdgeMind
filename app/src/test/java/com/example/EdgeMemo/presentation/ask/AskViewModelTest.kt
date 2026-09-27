@@ -151,6 +151,36 @@ class AskViewModelTest {
     }
 
     @Test
+    fun askMovesQuestionIntoConversationAndClearsInput() {
+        val fake = FakeRag { question -> RagResponse(question, "answer", AnswerStatus.ANSWERED, emptyList(), emptyList()) }
+        val viewModel = AskViewModel(AskQuestionUseCase(fake))
+
+        viewModel.onQuestionChange("What happened to the P-101 seal?")
+        viewModel.ask()
+        advance()
+
+        val state = viewModel.uiState.value
+        assertEquals("the submitted query must become the conversation message", "What happened to the P-101 seal?", state.submittedQuestion)
+        assertEquals("the input field must clear after submit", "", state.question)
+        assertTrue(state.hasConversation)
+    }
+
+    @Test
+    fun errorPathStillKeepsTheSubmittedQuestionVisible() {
+        val fake = FakeRag { question -> throw RagError.RetrievalFailed("local vector store unavailable") }
+        val viewModel = AskViewModel(AskQuestionUseCase(fake))
+
+        viewModel.onQuestionChange("any question")
+        viewModel.ask()
+        advance()
+
+        val state = viewModel.uiState.value
+        assertEquals(AskPhase.ERROR, state.phase)
+        assertEquals("any question", state.submittedQuestion)
+        assertEquals("", state.question)
+    }
+
+    @Test
     fun clearResetsToIdle() {
         val fake = FakeRag { question -> RagResponse(question, "ans", AnswerStatus.ANSWERED, emptyList(), emptyList()) }
         val viewModel = AskViewModel(AskQuestionUseCase(fake))
@@ -162,6 +192,7 @@ class AskViewModelTest {
 
         val state = viewModel.uiState.value
         assertEquals(AskPhase.IDLE, state.phase)
+        assertNull(state.submittedQuestion)
         assertEquals("", state.question)
         assertEquals("", state.answer)
     }
