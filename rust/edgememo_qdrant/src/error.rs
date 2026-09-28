@@ -7,6 +7,9 @@ pub enum EdgeError {
     InvalidHandle,
     InvalidId(String),
     DimensionMismatch { expected: usize, got: usize },
+    InvalidPayload(String),
+    InvalidFilter(String),
+    InvalidIndex(String),
     Jni(String),
     Qdrant(OperationError),
     Panic(String),
@@ -23,6 +26,9 @@ impl fmt::Display for EdgeError {
             EdgeError::DimensionMismatch { expected, got } => {
                 write!(f, "vector dimension mismatch: expected {expected}, got {got}")
             }
+            EdgeError::InvalidPayload(msg) => write!(f, "invalid payload: {msg}"),
+            EdgeError::InvalidFilter(msg) => write!(f, "invalid filter: {msg}"),
+            EdgeError::InvalidIndex(msg) => write!(f, "invalid index: {msg}"),
             EdgeError::Jni(msg) => write!(f, "JNI error: {msg}"),
             EdgeError::Qdrant(err) => write!(f, "qdrant-edge error: {err}"),
             EdgeError::Panic(msg) => write!(f, "internal panic: {msg}"),

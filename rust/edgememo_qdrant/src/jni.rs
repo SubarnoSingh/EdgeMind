@@ -1,8 +1,10 @@
 use std::ffi::c_void;
 
 use jni::objects::{JClass, JFloatArray, JObject, JObjectArray, JString, JValue};
-use jni::sys::{jint, jlong, JNI_VERSION_1_6};
+use jni::sys::{jboolean, jint, jlong, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
+use qdrant_edge::external::serde_json;
+use qdrant_edge::{Record, ScoredPoint, VectorInternal, VectorStructInternal};
 
 use crate::error::{guard, EdgeError, Result};
 use crate::store;
@@ -193,6 +195,180 @@ unsafe extern "system" fn native_flush(mut env: JNIEnv, _class: JClass, handle: 
     }
 }
 
+// ---- Phase-10 spike: record payload functions -------------------------------
+
+fn record_to_json(record: &Record) -> serde_json::Value {
+    let semantic = match record.vector.as_ref() {
+        Some(VectorStructInternal::Named(vectors)) => match vectors.get(store::VECTOR_NAME) {
+            Some(VectorInternal::Dense(values)) => Some(values.as_slice()),
+            _ => None,
+        },
+        _ => None,
+    };
+    serde_json::json!({
+        "id": record.id.to_string(),
+        "payload": record.payload.as_ref().map(|payload| &payload.0),
+        "vector": semantic,
+    })
+}
+
+fn scored_point_to_json(point: &ScoredPoint) -> serde_json::Value {
+    serde_json::json!({
+        "id": point.id.to_string(),
+        "score": point.score,
+        "payload": point.payload.as_ref().map(|payload| &payload.0),
+    })
+}
+
+fn optional_string(env: &mut JNIEnv, value: &JString) -> Result<Option<String>> {
+    if value.is_null() {
+        Ok(None)
+    } else {
+        get_string(env, value).map(Some)
+    }
+}
+
+fn parse_payload(env: &mut JNIEnv, value: &JString) -> Result<serde_json::Value> {
+    let raw = get_string(env, value)?;
+    serde_json::from_str(&raw).map_err(|err| EdgeError::InvalidPayload(err.to_string()))
+}
+
+unsafe extern "system" fn native_upsert_with_payload(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: JString,
+    vector: JFloatArray,
+    payload: JString,
+) {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let id = get_string(&mut env, &id)?;
+        let vector = get_f32_vector(&mut env, &vector)?;
+        let payload = parse_payload(&mut env, &payload)?;
+        store::upsert_with_payload(shard, &id, &vector, payload)
+    });
+    if let Err(err) = result {
+        throw_err(&mut env, err);
+    }
+}
+
+unsafe extern "system" fn native_retrieve<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    ids_json: JString<'local>,
+) -> JString<'local> {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let ids_json = get_string(&mut env, &ids_json)?;
+        let ids: Vec<String> = serde_json::from_str(&ids_json)
+            .map_err(|err| EdgeError::InvalidId(err.to_string()))?;
+        let records = store::retrieve(shard, &ids)?;
+        let json = serde_json::to_string(&records.iter().map(record_to_json).collect::<Vec<_>>())
+            .map_err(|err| EdgeError::Jni(err.to_string()))?;
+        env.new_string(json).map_err(map_jni)
+    });
+    match result {
+        Ok(json) => json,
+        Err(err) => {
+            throw_err(&mut env, err);
+            JString::default()
+        }
+    }
+}
+
+unsafe extern "system" fn native_scroll<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    filter_json: JString<'local>,
+    limit: jint,
+    offset_id: JString<'local>,
+) -> JString<'local> {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let filter_json = optional_string(&mut env, &filter_json)?;
+        let offset_id = optional_string(&mut env, &offset_id)?;
+        let records = store::scroll(shard, filter_json.as_deref(), limit as usize, offset_id.as_deref())?;
+        let json = serde_json::to_string(&records.iter().map(record_to_json).collect::<Vec<_>>())
+            .map_err(|err| EdgeError::Jni(err.to_string()))?;
+        env.new_string(json).map_err(map_jni)
+    });
+    match result {
+        Ok(json) => json,
+        Err(err) => {
+            throw_err(&mut env, err);
+            JString::default()
+        }
+    }
+}
+
+unsafe extern "system" fn native_count_filtered(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    filter_json: JString,
+    exact: jboolean,
+) -> jlong {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let filter_json = optional_string(&mut env, &filter_json)?;
+        store::count_filtered(shard, filter_json.as_deref(), exact != 0).map(|count| count as jlong)
+    });
+    match result {
+        Ok(count) => count,
+        Err(err) => {
+            throw_err(&mut env, err);
+            0
+        }
+    }
+}
+
+unsafe extern "system" fn native_create_payload_index(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    field: JString,
+    schema: JString,
+) {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let field = get_string(&mut env, &field)?;
+        let schema = get_string(&mut env, &schema)?;
+        store::create_payload_index(shard, &field, &schema)
+    });
+    if let Err(err) = result {
+        throw_err(&mut env, err);
+    }
+}
+
+unsafe extern "system" fn native_search_with_filter<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    vector: JFloatArray<'local>,
+    limit: jint,
+    filter_json: JString<'local>,
+) -> JString<'local> {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let query = get_f32_vector(&mut env, &vector)?;
+        let filter_json = optional_string(&mut env, &filter_json)?;
+        let points = store::search_with_filter(shard, &query, limit as usize, filter_json.as_deref())?;
+        let json = serde_json::to_string(&points.iter().map(scored_point_to_json).collect::<Vec<_>>())
+            .map_err(|err| EdgeError::Jni(err.to_string()))?;
+        env.new_string(json).map_err(map_jni)
+    });
+    match result {
+        Ok(json) => json,
+        Err(err) => {
+            throw_err(&mut env, err);
+            JString::default()
+        }
+    }
+}
+
 unsafe extern "system" fn native_close(mut env: JNIEnv, _class: JClass, handle: jlong) {
     let result = guard(|| {
         let ptr = shard_ptr(handle)?;
@@ -231,6 +407,36 @@ fn jni_methods() -> Vec<jni::NativeMethod> {
             native_optimize as *const () as usize,
         ),
         ("nativeFlush", "(J)V", native_flush as *const () as usize),
+        (
+            "nativeUpsertWithPayload",
+            "(JLjava/lang/String;[FLjava/lang/String;)V",
+            native_upsert_with_payload as *const () as usize,
+        ),
+        (
+            "nativeRetrieve",
+            "(JLjava/lang/String;)Ljava/lang/String;",
+            native_retrieve as *const () as usize,
+        ),
+        (
+            "nativeScroll",
+            "(JLjava/lang/String;ILjava/lang/String;)Ljava/lang/String;",
+            native_scroll as *const () as usize,
+        ),
+        (
+            "nativeCountFiltered",
+            "(JLjava/lang/String;Z)J",
+            native_count_filtered as *const () as usize,
+        ),
+        (
+            "nativeCreatePayloadIndex",
+            "(JLjava/lang/String;Ljava/lang/String;)V",
+            native_create_payload_index as *const () as usize,
+        ),
+        (
+            "nativeSearchWithFilter",
+            "(J[FILjava/lang/String;)Ljava/lang/String;",
+            native_search_with_filter as *const () as usize,
+        ),
         ("nativeClose", "(J)V", native_close as *const () as usize),
     ] {
         methods.push(jni::NativeMethod {
