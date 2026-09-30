@@ -1,408 +1,1718 @@
-# EdgeMind — EdgeMemo
+# EdgeMind
 
-**Offline-first AI work-memory and intelligence platform for Android edge devices.**
+> **Offline Industrial Intelligence --- maintenance knowledge,
+> retrieval, and grounded decision support at the edge.**
 
-The device has useful persistent memory: it retrieves and reasons over that memory
-**offline**, controls what information leaves the device through an explicit policy
-engine, and becomes richer when connectivity returns.
+EdgeMind is an offline-first Android platform for capturing, storing,
+retrieving, and synchronizing industrial maintenance knowledge directly
+on a field device.
 
-This repository (`EdgeMemo`) is the Android application (`EdgeMind`, `com.example.EdgeMemo`,
-v1.0) plus its Rust native Qdrant Edge library and an optional Node.js cloud backend.
+It is designed around a simple operational requirement:
 
-Authoritative product documents:
+**A technician should still be able to access useful, grounded
+maintenance knowledge when connectivity is unavailable.**
 
-- `docs/EdgeMind_CONTEXT.md`
-- `docs/EdgeMind_COMPLETE_PROJECT_SPEC.md`
+Instead of making a remote database or cloud AI service the center of
+the application, EdgeMind keeps the operational knowledge layer
+on-device using **Qdrant Edge**. Cloud services are optional for
+synchronization, centralized knowledge, and cloud-assisted workflows.
 
-Current implementation state: `WORKING.md`. Phase records: `docs/PHASE_*.md`, `docs/UI_PHASE_*.md`.
+------------------------------------------------------------------------
 
----
+## Table of Contents
 
-## 1. The Core Lifecycle
+-   [What is EdgeMind?](#what-is-edgemind)
+-   [Why EdgeMind?](#why-edgemind)
+-   [Core Features](#core-features)
+-   [How EdgeMind Works](#how-edgemind-works)
+-   [Architecture](#architecture)
+-   [Data Flow](#data-flow)
+-   [Qdrant Edge](#qdrant-edge)
+-   [Hybrid Retrieval and RAG](#hybrid-retrieval-and-rag)
+-   [Sync Architecture](#sync-architecture)
+-   [Conflict Resolution](#conflict-resolution)
+-   [Offline-First Behavior](#offline-first-behavior)
+-   [Industrial Maintenance Workflow](#industrial-maintenance-workflow)
+-   [UI and Application Modules](#ui-and-application-modules)
+-   [Technology Stack](#technology-stack)
+-   [Repository Structure](#repository-structure)
+-   [Data Model](#data-model)
+-   [Security and Data Policies](#security-and-data-policies)
+-   [Testing and Verification](#testing-and-verification)
+-   [Demo Scenario](#demo-scenario)
+-   [Current Limitations](#current-limitations)
+-   [Build and Run](#build-and-run)
+-   [Development Architecture](#development-architecture)
+-   [Documentation](#documentation)
+-   [Project Status](#project-status)
+-   [Future Directions](#future-directions)
+-   [License](#license)
 
-```text
-Knowledge enters edge
-        ↓
-Local memory (Qdrant Edge shard + deterministic embeddings)
-        ↓
-Offline retrieval (dense + keyword, RRF fusion, dedup, supersession)
-        ↓
-AI reasoning (extractive local RAG, optional cloud escalation)
-        ↓
-New knowledge captured
-        ↓
-Policy decision (LOCAL_ONLY / SYNC / SYNC_REDACTED)
-        ↓
-Durable offline outbox (Qdrant-native operation store)
-        ↓
-Connectivity returns → WorkManager sync
-        ↓
-Qdrant Server (cloud/shared knowledge)
-        ↓
-cloud → edge ingest → conflict detection/resolution
-        ↓
-Richer local memory
+------------------------------------------------------------------------
+
+## What is EdgeMind?
+
+EdgeMind is an Android-based industrial knowledge and maintenance
+intelligence system.
+
+It combines:
+
+-   local structured records,
+-   local vector search,
+-   keyword retrieval,
+-   grounded question answering,
+-   maintenance timelines,
+-   asset-oriented views,
+-   conflict management,
+-   optional cloud synchronization,
+-   and Qdrant Edge persistence.
+
+The application is intended for environments such as:
+
+-   manufacturing plants,
+-   process plants,
+-   utilities,
+-   industrial maintenance teams,
+-   field service operations,
+-   remote facilities,
+-   and environments with unreliable connectivity.
+
+The key architectural principle is:
+
+> **The local device remains useful and authoritative for its local
+> operational knowledge even when the network disappears.**
+
+------------------------------------------------------------------------
+
+# Why EdgeMind?
+
+Industrial environments often have an uncomfortable combination of
+requirements:
+
+1.  Maintenance data must be available in the field.
+2.  Connectivity may be intermittent or unavailable.
+3.  Technicians need answers quickly.
+4.  Historical maintenance records contain valuable context.
+5.  Cloud synchronization is useful, but should not make the local
+    application unusable.
+6.  AI-generated answers must be grounded in actual evidence rather than
+    invented information.
+
+EdgeMind addresses these requirements by moving the primary knowledge
+and retrieval layer onto the Android device.
+
+### Traditional cloud-first approach
+
+``` text
+Technician
+    |
+    v
+Android App
+    |
+    v
+Internet
+    |
+    v
+Cloud Database / AI
+    |
+    v
+Answer
 ```
 
-Nothing is faked: indexing, embedding, vector insertion, progress, sync status and
-retrieval are all real application state.
+If the network disappears, the workflow becomes severely degraded.
 
----
+### EdgeMind approach
 
-## 2. Tech Stack
-
-| Layer | Technology |
-|---|---|
-| UI | Kotlin, Jetpack Compose (Compose BOM 2026.02.01), Material 3 |
-| State | ViewModel + StateFlow + coroutines |
-| Storage (vectors, records, sync state) | **Qdrant Edge** via Rust FFI — single application shard |
-| Native | Rust (`rust/edgememo_qdrant`, `qdrant-edge = 0.8.0`) behind a narrow JNI bridge |
-| Embeddings | Deterministic on-device feature-hashing (512-d, unigrams + bigrams + char n-grams, L2-normalized) behind `EmbeddingService` |
-| Answers | Extractive local RAG behind `LLMService`/`RagService`; optional cloud escalation behind interfaces |
-| Background sync | WorkManager (`QdrantSyncWorker`, retries/backoff/idempotency) |
-| Room | **Legacy only** — pre-cutover data importer; the active stack is Qdrant-native |
-| Cloud backend (optional) | Node.js + TypeScript + Express + Qdrant Server (`@qdrant/js-client-rest`) |
-| Build | AGP 9.4.1, Kotlin 2.2.10, Gradle 9.6, cargo (NDK cross-compilation wired into Gradle) |
-
----
-
-## 3. Architecture
-
-```text
-Compose UI (presentation/)
-    ↓
-ViewModel / StateFlow
-    ↓
-Use Cases (domain/)
-    ↓
-Repositories / Services (data/)
-    ↓
-Qdrant Edge shard / Embeddings / Sync engine
-    ↓
-Rust native library (libedgememo_qdrant.so)
+``` text
+                 ┌──────────────────────┐
+                 │      Android App     │
+                 │                      │
+                 │ Dashboard            │
+                 │ Machines             │
+                 │ Ask                  │
+                 │ Activity             │
+                 │ Sync                 │
+                 └──────────┬───────────┘
+                            │
+                            v
+                 ┌──────────────────────┐
+                 │   Domain / Use Cases │
+                 └──────────┬───────────┘
+                            │
+                            v
+                 ┌──────────────────────┐
+                 │    Qdrant Edge       │
+                 │                      │
+                 │ Records              │
+                 │ Payloads             │
+                 │ Vectors              │
+                 │ Sync operations      │
+                 │ Conflicts            │
+                 │ Cursor/watermarks    │
+                 └──────────┬───────────┘
+                            │
+                     Optional network
+                            │
+                            v
+                 ┌──────────────────────┐
+                 │     Cloud Backend    │
+                 │                      │
+                 │ Sync API             │
+                 │ Knowledge API        │
+                 │ Optional cloud AI    │
+                 └──────────────────────┘
 ```
 
-### Package map (`app/src/main/java/com/example/EdgeMemo/`)
+The local path does not require the cloud.
 
-```text
-core/            Pure models & primitives
-  model/           Memory, CreateMemoryInput, MemoryType, SyncDecision, …
-  record/          LocalRecordStore interface, Record/RecordId/RecordType,
-                   filters, JSON value codec (Qdrant payload mapping)
-  sync/            Qdrant-native sync engine: canonical content hash, change
-                   detection, operation store/types/transitions, sync protocol
-  retrieval/       RetrievalService/QueryNormalizer/ReciprocalRankFusion
-  rag/             RAG models
-  policy/          Policy domain models
-  document/        Document models
-  common/          EdgeError sealed hierarchy (EmbeddingError, LocalStorageError,
-                   QdrantError, InvalidDocument, CloudUnavailable, …)
-  connectivity/    Online state
+------------------------------------------------------------------------
 
-ai/
-  embedding/       EmbeddingService + FeatureHashingEmbeddingService (offline, deterministic)
-  llm/             LLMService + ExtractiveLLMService (local answer generation)
+# Core Features
 
-native/qdrant/     JNI boundary (kept narrow)
-  NativeBridge           — external funs: create/open/upsert(+payload/batch)/search
-                           (+filter)/scroll/retrieve/delete/count(±filter)/optimize/
-                           flush/close/createPayloadIndex
-  QdrantEdgeVectorStore  — LocalVectorStore implementation
-  QdrantNativeException
+## 1. Offline-first industrial knowledge
 
-data/
-  local/record/    QdrantEdgeRecordStore — active records live in the Qdrant shard
-  local/sync/      operation store persistence
-  local/room/      LEGACY database + migration/ importer (pre-cutover rows only)
-  repository/      QdrantRecordMemoryRepository (active MemoryRepository), mapper
-  retrieval/       QdrantRecordRetrievalService (production pipeline, see §6)
-  policy/          DefaultPolicyEngine + DefaultRedactionService
-  document/        PDF / Markdown / TXT extractors, ContentResolver reader
-  sync/            QdrantSyncWorker (WorkManager), QdrantSyncRuntime,
-                   HttpQdrantSyncRemote, status reader, cloud-knowledge ingestor
-  cloud/           Cloud answer cache, shared-knowledge sources
-  conflict/        QdrantConflictStore
+Maintenance records are stored locally on the Android device using
+Qdrant Edge.
 
-domain/
-  memory/          CreateMemoryUseCase, ListMemories, GetMemory, Search, Delete
-  policy/          PolicyEngine + RedactionService interfaces
-  rag/             AskQuestionUseCase, DefaultRagService (local),
-                   EscalatingRagService (local-first + cloud fallback)
-  document/        DocumentIngestionService, IngestDocumentUseCase
-  conflict/        conflict use cases & models (PULL_CONFLICT, authority, …)
-  sync/            SyncStatusReader
+The local knowledge layer contains both:
 
-di/                AppContainer — manual DI wiring the whole graph
-presentation/      See §8
+-   structured payloads,
+-   and vector representations.
+
+This allows the application to continue retrieving relevant information
+without a network connection.
+
+------------------------------------------------------------------------
+
+## 2. Qdrant Edge as the local system of record
+
+Qdrant Edge is not used merely as a vector cache.
+
+EdgeMind uses it for the production local record layer.
+
+The same Qdrant Edge shard can contain:
+
+-   maintenance records,
+-   observations,
+-   procedures,
+-   incidents,
+-   documents/knowledge records,
+-   vectors,
+-   tombstones,
+-   sync operations,
+-   conflict evidence,
+-   synchronization cursor state.
+
+This removes the need for a separate production Room/SQLite data path.
+
+Room remains part of the repository primarily for legacy/rollback and
+migration compatibility.
+
+------------------------------------------------------------------------
+
+## 3. Structured industrial records
+
+EdgeMind represents operational knowledge as records.
+
+Examples include:
+
+-   maintenance events,
+-   observations,
+-   procedures,
+-   incidents,
+-   repairs,
+-   operational notes,
+-   knowledge documents.
+
+Records can contain information such as:
+
+``` text
+recordId
+recordType
+title
+content
+subjectKey
+source
+createdAt
+updatedAt
+version
+policy
+syncState
+contentHash
+supersedes
+tombstone
+embedding
+provenance
 ```
 
-Dependency rule: the Rust/Qdrant implementation never leaks past
-`native/qdrant/` + `data/local/record/`; everything above speaks the Kotlin
-`LocalRecordStore` / `MemoryRepository` / `RetrievalService` boundaries.
+------------------------------------------------------------------------
 
----
+## 4. Asset-oriented organization
 
-## 4. Memory Model
+Industrial assets are represented through record namespaces such as:
 
-Every memory (`core/model/Memory.kt`) carries:
+``` text
+p-101/seal
+p-101/maintenance
+p-101/incident
+p-101/procedure
+```
 
-`memoryId, title, content, chunkId, source, type, tags, createdAt, updatedAt,
-origin (LOCAL/CLOUD/SYNCED), syncDecision, syncState (LOCAL/PENDING/SYNCED/FAILED),
-sensitivity, importance, version, contentHash, subjectKey, supersedes, tombstone,
-metadata, policyReason, redactedTitle/redactedContent, authority`
+The UI derives an asset workspace from these records.
 
-Memory types: `DOCUMENT · NOTE · OBSERVATION · PROCEDURE · REPAIR · EVENT · CLOUD_KNOWLEDGE`
+For example:
 
-`subjectKey` (e.g. `p-101/seal`) is what groups records into **assets** in the
-Machines workspace. Evolving memory is handled via `version`, `contentHash`,
-`supersedes`, `tombstone` and `subjectKey` — contradictory knowledge is never
-silently overwritten; it surfaces in the conflict system.
+``` text
+P-101
+│
+├── Maintenance
+├── Observations
+├── Incidents
+├── Procedures
+└── Historical activity
+```
 
----
+This allows the same underlying record system to support an industrial
+asset view without requiring a separate duplicated storage model.
 
-## 5. Ingestion (real write path)
+------------------------------------------------------------------------
 
-```text
+## 5. Grounded Ask
+
+Technicians can ask questions about stored maintenance knowledge.
+
+Example:
+
+> Why does P-101 keep experiencing mechanical seal failures?
+
+EdgeMind retrieves relevant local records and produces a grounded answer
+with evidence.
+
+The answer is not supposed to invent an unsupported diagnosis.
+
+Instead, the system distinguishes between:
+
+-   stored facts,
+-   retrieved evidence,
+-   and inference.
+
+Example evidence:
+
+``` text
+Repeated Seal Failure
+Seal Failure Investigation
+Mechanical Seal Leakage
+Mechanical Seal Replacement
+```
+
+The user can inspect citations and evidence details.
+
+------------------------------------------------------------------------
+
+## 6. Hybrid retrieval
+
+EdgeMind combines multiple retrieval signals.
+
+### Dense retrieval
+
+Uses the vector representation stored in Qdrant Edge.
+
+Useful for:
+
+-   semantic similarity,
+-   concept matching,
+-   differently worded maintenance descriptions.
+
+### Keyword retrieval
+
+Uses structured payload fields and bounded Qdrant scrolling.
+
+Useful for:
+
+-   exact equipment identifiers,
+-   part numbers,
+-   fault codes,
+-   maintenance terminology.
+
+For example:
+
+``` text
+SKF-6205
+P-101
+INC-1042
+mechanical seal
+cavitation
+```
+
+### Hybrid ranking
+
+The two retrieval paths are combined using Reciprocal Rank Fusion:
+
+``` text
+RRF(d) = Σ 1 / (K + rank(d))
+```
+
+with:
+
+``` text
+K = 60
+```
+
+Identifier matches can receive additional weighting where appropriate.
+
+------------------------------------------------------------------------
+
+# How EdgeMind Works
+
+A typical lifecycle looks like this:
+
+``` text
+Technician captures information
+            |
+            v
+       Create Record
+            |
+            v
+   Apply data policy
+            |
+            v
+ Calculate canonical hash
+            |
+            v
+ Generate local embedding
+            |
+            v
+      Qdrant Edge
+       /       \
+      /         \
+ Payload       Vector
+      \         /
+       \       /
+      Local record
+            |
+            v
+       Retrieval
+            |
+            v
+      Grounded Ask
+            |
+            v
+ Evidence + citations
+```
+
+If synchronization is enabled:
+
+``` text
+Local Record
+     |
+     v
+Change Detection
+     |
+     v
+Sync Operation
+     |
+     v
+Outbox in Qdrant Edge
+     |
+     v
+Cloud Sync
+     |
+     +---- ACK
+     |
+     +---- Retry
+     |
+     +---- Conflict
+     |
+     +---- DEAD
+```
+
+------------------------------------------------------------------------
+
+# Architecture
+
+EdgeMind follows a layered Android architecture.
+
+``` text
+┌───────────────────────────────────────────────┐
+│                 Presentation                  │
+│                                               │
+│ Dashboard │ Machines │ Ask │ Sync │ Conflicts │
+│ Record creation │ Record details             │
+└───────────────────────┬───────────────────────┘
+                        │
+                        v
+┌───────────────────────────────────────────────┐
+│                    Domain                     │
+│                                               │
+│ Memory use cases                              │
+│ Conflict use cases                            │
+│ Sync abstractions                             │
+│ RAG / retrieval contracts                      │
+└───────────────────────┬───────────────────────┘
+                        │
+                        v
+┌───────────────────────────────────────────────┐
+│                     Data                      │
+│                                               │
+│ Qdrant Record Repository                      │
+│ Qdrant Retrieval                              │
+│ Qdrant Sync Engine                            │
+│ Cloud Knowledge Ingestion                     │
+│ Conflict Store                                │
+└───────────────────────┬───────────────────────┘
+                        │
+                        v
+┌───────────────────────────────────────────────┐
+│              Native / Qdrant Layer            │
+│                                               │
+│ Kotlin → JNI → Rust → Qdrant Edge             │
+└───────────────────────────────────────────────┘
+```
+
+------------------------------------------------------------------------
+
+# Android → JNI → Rust → Qdrant Edge
+
+Qdrant Edge is integrated through native Rust.
+
+The high-risk path is:
+
+``` text
+Android/Kotlin
+      |
+      v
+NativeBridge
+      |
+      v
+JNI
+      |
+      v
+Rust
+      |
+      v
+qdrant-edge 0.8.0
+      |
+      v
+Local persistent storage
+```
+
+This path is intentionally kept explicit.
+
+There is no silent replacement of Qdrant Edge with an in-memory mock or
+another local vector database.
+
+------------------------------------------------------------------------
+
+# Qdrant Edge
+
+The application uses:
+
+``` text
+qdrant-edge = 0.8.0
+```
+
+The local Qdrant shard is the authoritative production local data layer.
+
+The architecture supports:
+
+-   payload-only records,
+-   vector-bearing records,
+-   batch upserts,
+-   filtering,
+-   payload indexes,
+-   vector search,
+-   persistence,
+-   restart recovery,
+-   tombstones,
+-   deterministic identifiers,
+-   synchronization metadata.
+
+## Payload-only records
+
+Not every record needs a vector.
+
+Qdrant Edge supports payload-only records in the application
+architecture.
+
+This is important for records such as:
+
+-   sync operations,
+-   cursor state,
+-   conflict evidence,
+-   operational metadata.
+
+Vector-bearing records are used for knowledge retrieval.
+
+------------------------------------------------------------------------
+
+# Record Storage
+
+The production repository follows:
+
+``` text
+CreateMemoryUseCase
+        |
+        v
+QdrantRecordMemoryRepository
+        |
+        v
+MemoryRecordMapper
+        |
+        v
+QdrantEdgeRecordStore
+        |
+        v
+Qdrant Edge
+```
+
+A normal create/update operation approximately follows:
+
+``` text
 Input
- ↓ validate/normalize
- ↓ chunk
- ↓ embed locally (FeatureHashingEmbeddingService)
- ↓ policy evaluation (DefaultPolicyEngine, at persistence time)
- ↓ duplicate/change detection (canonical content hash + version)
- ↓ Qdrant Edge upsert (record + vector + payload in the application shard)
- ↓ syncable → durable outbox operation (UPSERT:<uuid>:<version>)
- ↓ activity event
+  ↓
+Policy evaluation
+  ↓
+Canonical content hash
+  ↓
+Embedding generation
+  ↓
+Record construction
+  ↓
+Qdrant Edge upsert
+  ↓
+Change detection
+  ↓
+Optional sync operation
 ```
 
-The same path serves notes, the Create Record form, the asset composer, and
-document ingestion (PDF / Markdown / TXT via SAF `ContentResolver`). Batch writes
-use `nativeUpsertBatchWithPayload`.
+This means the same production path is used for records created from the
+application UI and records used by the retrieval system.
 
----
+------------------------------------------------------------------------
 
-## 6. Retrieval & RAG (offline)
+# Embeddings
 
-Production pipeline (`QdrantRecordRetrievalService`):
+The current local embedding implementation is a deterministic lexical
+baseline:
 
-```text
-Question
- ↓ QueryNormalizer
- ↓ local embedding
- ↓ dense vector search (same shard, active application record types)
- ↓ keyword/exact scan (bounded, indexed prefilter — keeps identifiers like
-   SKF-6205, E-4417, P-101 retrievable)
- ↓ Reciprocal Rank Fusion (RRF, k=60 default)
- ↓ deduplication (content hash + chunk identity)
- ↓ tombstone/superseded exclusion (exhaustive indexed _supersedes scan)
- ↓ ranking → top-K evidence (denseScore / keywordScore / matchedTerms / rank)
- ↓ grounded answer with [n] citations (ExtractiveLLMService)
+``` text
+FeatureHashingEmbeddingService
 ```
 
-If evidence is insufficient the UI says so honestly (`NOT ENOUGH EVIDENCE`) —
-answers are never fabricated, citations are the real records used.
+with:
 
-`EscalatingRagService` adds optional cloud escalation **only** when the local
-path reports insufficient evidence **and** the device is online; the cloud sees
-the question text only, never local evidence, and cloud answers are attributed
-with provenance before they can become local `CLOUD_KNOWLEDGE`.
-
----
-
-## 7. Policy, Privacy and Sync
-
-### Policy engine (`DefaultPolicyEngine`) — ordered rules, explainable
-
-1. **Hard LOCAL_ONLY** — credentials/access content, `RESTRICTED` sensitivity,
-   local-only tags (e.g. gate codes). Never enters the outbox.
-2. Explicit user choice (`SYNC` / `SYNC_REDACTED`) from the capture UI.
-3. `SENSITIVE` → `SYNC_REDACTED` (original stays local; safe representation leaves).
-4. Team-shareable types (`PROCEDURE`, `DOCUMENT`) → `SYNC`.
-5. `REPAIR` records → `SYNC_REDACTED` (may embed private identifiers).
-6. Technical identifiers in content → `SYNC_REDACTED`.
-7. Safe default → `LOCAL_ONLY`.
-
-Every decision carries a human-readable `policyReason`, surfaced in the UI.
-
-### Durable offline outbox
-
-- Qdrant-native operation store (`core/sync/`): `operationId, memoryId,
-  operationType, payload, createdAt, attempts, state, lastError`.
-- States: `PENDING → IN_FLIGHT → ACKED | FAILED | DEAD`; idempotent operation
-  IDs (`UPSERT:<uuid>:<version>`, `TOMBSTONE:…`) and canonical content hashes
-  make retries safe and change detection deterministic.
-- `QdrantSyncWorker` (WorkManager) drains the queue when connectivity returns,
-  with retries/backoff. `LOCAL_ONLY` content provably never reaches it.
-
-### Cloud backend (`backend/`, optional)
-
-Node/TypeScript/Express service on **Qdrant Server**:
-
-```text
-GET  /health
-POST /answers                      cloud answer (question text only)
-GET  /knowledge  ·  POST /knowledge/ingest  ·  GET /knowledge/search
-PUT  /sync/operations/:operationId idempotent operation upsert (ACK + conflict info)
+``` text
+512 dimensions
 ```
 
-Collections: `device_memory`, `cloud_knowledge`. Pull of shared knowledge
-flows back through the native ingestor and the conflict detector
-(`PULL_CONFLICT`, authority comparison, unresolved conflicts remain visible).
+It is intentionally deterministic and local.
 
----
+It does **not** require a remote embedding API.
 
-## 8. UI (Compose, dark charcoal / muted periwinkle engineering-tool aesthetic)
+This is important for the offline architecture.
 
-Primary tabs (`presentation/shell/EdgeMindShell.kt`, bottom nav):
+The current implementation should be considered a production-compatible
+deterministic baseline rather than a neural semantic embedding model.
 
-| Tab | Route | What it shows |
-|---|---|---|
-| **Dashboard** | `Dashboard` | Real metrics (records, assets, maintenance, conflicts, outbox counts), recent activity, offline notice |
-| **Machines** | `Machines` → `MachineDetail(namespace)` | Assets derived from `subjectKey`s; per-asset timeline (maintenance/observations/incidents/procedures/documents), conflicts, asset composer |
-| **Ask** | `Ask` | Grounded console: QUESTION → RETRIEVAL → EVIDENCE (numbered source cards) → ANSWER with `[n]` citations |
-| **Sync** | `Sync` | Real durable outbox/sync state only — queued work never shown as synchronized |
-| **Settings** | `Settings` | Theme (dark/light, persisted), profile name (local-only), memory & sync info |
+------------------------------------------------------------------------
 
-Pushed routes: `Records` (browser + capture + import), `RecordDetail`,
-`Conflicts`/`ConflictDetail` (evidence + resolution), `CitationDetail`,
-`CreateRecord` (full capture form: subject, title, detail, tags, type,
-sync choice — saves through `CreateMemoryUseCase`).
+# Retrieval and RAG
 
-Statuses (record counts, sync, conflicts, latency-free chips) reflect real
-application state only.
+The retrieval pipeline is Qdrant-native.
 
----
-
-## 9. Repository Layout
-
-```text
-app/                 Android application (Kotlin/Compose)
-  src/main/          production code (see §3)
-  src/test/          JVM unit + integration tests (real Qdrant native lib loaded
-                     via TestNativeLoader; ~575 tests)
-  src/androidTest/   instrumentation tests
-rust/edgememo_qdrant Rust crate wrapping qdrant-edge 0.8.0 behind JNI
-backend/             Optional cloud: Express + Qdrant Server + tests (node --test)
-docs/                Context, full spec, per-phase architecture/verification records
-UI_demo/             UI mockups
-gradle/              Version catalog; Gradle 9.6 wrapper
-AGENTS.md            Agent/engineering rules for this repo
-WORKING.md           Current verified implementation state
+``` text
+User question
+      |
+      v
+Query processing
+      |
+      +-----------------------+
+      |                       |
+      v                       v
+Dense retrieval        Keyword retrieval
+      |                       |
+      |                       |
+      +-----------+-----------+
+                  |
+                  v
+             RRF ranking
+                  |
+                  v
+        Dedup / tombstone filter
+                  |
+                  v
+          Evidence selection
+                  |
+                  v
+          RAG sufficiency check
+                  |
+          +-------+-------+
+          |               |
+       Sufficient       Insufficient
+          |               |
+          v               v
+   Grounded answer    Honest diagnostic
+          |
+          v
+     Citations
 ```
 
----
+## Evidence-first answering
 
-## 10. Building & Running
+The system is designed so that an answer can be traced back to retrieved
+records.
 
-### Prerequisites
+The user can inspect:
 
-- **JDK 17+** (AGP 9.4.1) — point `JAVA_HOME` at an installed, working JDK
-  (check `ls /usr/lib/jvm` and verify `$JAVA_HOME/bin/java -version`).
-- Android SDK with NDK (`local.properties` → `sdk.dir`).
-- Rust toolchain with cargo (`~/.cargo/bin/cargo`), Android targets configured —
-  Gradle invokes `cargo build --release` per ABI (arm64-v8a / x86_64 via NDK clang)
-  and packages `libedgememo_qdrant.so` into `jniLibs`.
+-   source record,
+-   title,
+-   record type,
+-   asset,
+-   content,
+-   provenance,
+-   retrieval evidence.
 
-### Android app
+If evidence is insufficient, the system can report insufficient evidence
+instead of pretending that a diagnosis is known.
 
-```bash
-./gradlew :app:test            # unit + integration tests
-./gradlew lint                 # Android lint
-./gradlew assembleDebug        # APK → app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:installDebug    # or: adb install -r app/build/outputs/apk/debug/app-debug.apk
+------------------------------------------------------------------------
+
+# Sync Architecture
+
+Cloud synchronization is optional.
+
+The local system remains functional without it.
+
+The sync subsystem is Qdrant-native and stores synchronization
+operations inside Qdrant Edge.
+
+## Operation identity
+
+Operations use deterministic identities based on record identity and
+version.
+
+Conceptually:
+
+``` text
+<OP>:<record_uuid>:<record_version>
 ```
 
-The APK is large (~100 MB debug) because each debug build bundles the Rust
-native library for every ABI.
+This provides idempotency.
 
-### Cloud backend (optional — the app is fully functional without it)
+## Operation types
 
-```bash
-cd backend
-npm install
-npm run verify:config          # env checks (Qdrant URL, API key, collections)
-npm run dev                    # tsx watch src/index.ts
-npm test                       # node --test suite
+The architecture supports:
+
+``` text
+UPSERT
+TOMBSTONE
 ```
 
-The device-side backend URL is set via `CLOUD_BACKEND_URL` in `app/build.gradle.kts`
-/ build config; when blank, remote cloud features stay disabled and everything
-local keeps working.
+## Operation states
 
----
+The sync lifecycle includes:
 
-## 11. Testing Strategy
-
-- **Unit:** chunking, policy decisions, redaction, canonical hashing, sync
-  state transitions, conflict resolution, RRF fusion, mappings, embeddings
-  determinism.
-- **Integration:** memory → embedding → Qdrant Edge (real native library on
-  host), policy → outbox, outbox → cloud.
-- **Persistence:** data survives process/app restart (verified on device:
-  records written before `force-stop` are retrievable after cold start).
-- **Offline:** the local memory path (browse, search, capture, ingest, RAG)
-  works with no network.
-- **Privacy:** `LOCAL_ONLY → no outbox → no transmission` is asserted.
-- **On-device smoke:** Dashboard → Add Record → Create Record form → save →
-  asset timeline → grounded Ask with citations.
-
----
-
-## 12. Error Handling & Security Posture
-
-- Specific errors surface as specific states (`EdgeError` subclasses:
-  `InvalidInput`, `EmbeddingError`, `LocalStorageError`, `QdrantError`,
-  `MemoryNotFound`, `InvalidDocument`, `CloudUnavailable`, …) — never a generic
-  "something went wrong".
-- No raw sensitive memories in logs, no hardcoded secrets, no cloud dependency
-  hidden in the core path, `LOCAL_ONLY` content never leaves the device,
-  cloud responses are not trusted blindly (conflict + provenance checks).
-- Heavy work (embeddings, document extraction, Qdrant/JNI calls, sync) runs on
-  coroutines/dispatchers off the UI thread.
-
----
-
-## 13. Current Status & Honest Limitations
-
-Verified working (see `WORKING.md` and `docs/PHASE_13_*`):
-
-- Qdrant Edge persistence spike (insert → close → restart → search)
-- Qdrant-native application record store + metadata + search
-- On-device deterministic embeddings, offline hybrid retrieval with RRF
-- Grounded local RAG with citations and insufficient-evidence handling
-- Policy engine (LOCAL_ONLY / SYNC / SYNC_REDACTED) with redaction
-- Durable Qdrant-native outbox + WorkManager sync pipeline + idempotent ACKs
-- Conflict store & resolution UI, activity/timeline UI, application shell UI
-
-Honest limitations:
-
-- Embeddings are a lexical feature-hashing baseline, not a neural model
-  (swap behind `EmbeddingService` later).
-- Local answers are extractive (no on-device neural LLM yet).
-- Room exists only as the legacy pre-cutover importer; fresh installs never
-  touch it.
-- End-to-end encryption is not implemented (not a current-phase requirement).
-- Cloud backend is optional infrastructure; the edge product is complete without it.
-
----
-
-## 14. Development Order (project phases)
-
-```text
-Phase 0  Repo inspection          Phase 6  Offline outbox
-Phase 1  Qdrant Edge spike        Phase 7  Qdrant Server sync
-Phase 2  Local memory             Phase 8  Cloud → edge knowledge
-Phase 3  Documents               Phase 9  Conflict detection/resolution
-Phase 4  Local RAG                Phase 10 Persistence verification
-Phase 5  Policy engine           Phase 11+ UI polish, activity timeline
+``` text
+PENDING
+IN_FLIGHT
+ACKED
+FAILED
+DEAD
 ```
 
-Priority rule when time is limited: real Qdrant Edge > persistent local memory >
-on-device embeddings > offline semantic retrieval > grounded local answers >
-policy > durable outbox > cloud sync > conflicts > UI > stretch features.
+The system also tracks record synchronization states such as:
 
----
+``` text
+PENDING
+SYNCED
+CONFLICT
+TOMBSTONED
+```
 
-*When uncertain: follow `docs/EdgeMind_CONTEXT.md` and
-`docs/EdgeMind_COMPLETE_PROJECT_SPEC.md`, inspect the real repository, preserve
-working behavior, make the smallest verifiable change — and never fake the core
-edge system.*
+------------------------------------------------------------------------
+
+# Sync Lifecycle
+
+``` text
+Local change
+     |
+     v
+Change detector
+     |
+     v
+Is change new?
+     |
+     +---- No ----> Ignore / classify
+     |
+    Yes
+     |
+     v
+Create deterministic operation
+     |
+     v
+Qdrant operation store
+     |
+     v
+PENDING
+     |
+     v
+IN_FLIGHT
+     |
+     +----------+
+     |          |
+    ACK       Failure
+     |          |
+     v          v
+  ACKED      Retry
+                |
+                v
+              FAILED
+                |
+          max attempts?
+            /      \
+          No        Yes
+          |          |
+       Retry        DEAD
+```
+
+------------------------------------------------------------------------
+
+# Cloud → Device
+
+The system also supports cloud-to-local ingestion.
+
+The flow is:
+
+``` text
+Cloud knowledge
+      |
+      v
+Validate payload
+      |
+      v
+Change classification
+      |
+      v
+NEW / UPDATE / DUPLICATE /
+STALE / CONFLICT / TOMBSTONE
+      |
+      v
+Qdrant Edge
+```
+
+A durable cursor is stored in the Qdrant data layer so synchronization
+can resume after restart.
+
+------------------------------------------------------------------------
+
+# Conflict Resolution
+
+Distributed maintenance systems can encounter conflicting versions.
+
+EdgeMind does not silently overwrite newer information.
+
+The architecture uses:
+
+-   version comparison,
+-   deterministic conflict evidence,
+-   authority information,
+-   durable conflict records,
+-   explicit resolution actions.
+
+Supported user actions include:
+
+``` text
+KEEP_LOCAL
+KEEP_CLOUD
+DISMISS
+```
+
+Conflict resolution creates a deterministic follow-up state rather than
+simply deleting the conflict.
+
+------------------------------------------------------------------------
+
+# Tombstones and Deletion
+
+Deletion is represented as a record state rather than pretending the
+record never existed.
+
+This is important for synchronization.
+
+Example:
+
+``` text
+Record version 4
+      |
+      v
+TOMBSTONED
+      |
+      v
+TOMBSTONE sync operation
+      |
+      v
+Cloud
+```
+
+The system also prevents invalid resurrection of deleted records.
+
+------------------------------------------------------------------------
+
+# Offline-First Behavior
+
+The most important operational property of EdgeMind is that the local
+path does not depend on the cloud.
+
+When connectivity disappears:
+
+``` text
+                    INTERNET
+                       X
+                       |
+                       |
+Technician ──> Android Device
+                    |
+                    v
+               Qdrant Edge
+                    |
+                    v
+               Local retrieval
+                    |
+                    v
+               Local evidence
+```
+
+The device can still:
+
+-   open local records,
+-   browse machines/assets,
+-   inspect maintenance history,
+-   create new records,
+-   retrieve local evidence,
+-   run the local grounded Ask pipeline.
+
+Cloud synchronization is deferred until connectivity is available.
+
+------------------------------------------------------------------------
+
+# Industrial Maintenance Workflow
+
+A typical technician workflow is:
+
+## Step 1 --- Select an asset
+
+Example:
+
+``` text
+P-101
+Industrial centrifugal pump
+```
+
+## Step 2 --- Inspect history
+
+The technician sees:
+
+``` text
+Maintenance
+Observations
+Incidents
+Procedures
+Repairs
+```
+
+## Step 3 --- Ask a question
+
+Example:
+
+> Why does P-101 keep experiencing mechanical seal failures?
+
+The application searches local knowledge.
+
+## Step 4 --- Inspect evidence
+
+The answer is accompanied by retrieved records.
+
+The technician can inspect the source records instead of trusting an
+unexplained AI response.
+
+## Step 5 --- Capture new information
+
+The technician can add:
+
+``` text
+Observation
+Maintenance event
+Operational note
+Procedure
+```
+
+## Step 6 --- Continue offline
+
+The new information is stored locally.
+
+## Step 7 --- Synchronize later
+
+When connectivity becomes available, eligible records can synchronize
+with the cloud.
+
+------------------------------------------------------------------------
+
+# UI and Application Modules
+
+EdgeMind currently uses an industrial-style dark UI.
+
+## Dashboard
+
+Provides an operational overview including:
+
+-   assets,
+-   record activity,
+-   synchronization state,
+-   operational indicators.
+
+## Machines
+
+Displays asset-oriented workspaces derived from locally stored record
+namespaces.
+
+Example:
+
+``` text
+P-101
+```
+
+## Machine Detail
+
+Provides:
+
+-   activity timeline,
+-   maintenance records,
+-   observations,
+-   procedures,
+-   record details,
+-   Ask access,
+-   conflict access,
+-   new record actions.
+
+## Ask
+
+Grounded question answering with:
+
+-   question input,
+-   answer,
+-   evidence,
+-   citations,
+-   provenance.
+
+## Record Detail
+
+Allows inspection of the actual underlying operational record.
+
+## Sync
+
+Displays synchronization state and operational sync information.
+
+## Conflicts
+
+Provides a workflow for inspecting and resolving synchronization
+conflicts.
+
+## Create Record
+
+Allows a technician to capture new operational information directly on
+the device.
+
+------------------------------------------------------------------------
+
+# Technology Stack
+
+## Android
+
+-   Kotlin
+-   Jetpack Compose
+-   Android Architecture Components
+-   ViewModels
+-   WorkManager
+-   Kotlin coroutines
+
+## Native
+
+-   Rust
+-   JNI
+-   `qdrant-edge 0.8.0`
+
+## Local intelligence
+
+-   Qdrant Edge
+-   deterministic 512-dimensional feature-hashing embeddings
+-   hybrid retrieval
+-   Reciprocal Rank Fusion
+-   extractive/grounded answer pipeline
+
+## Backend
+
+-   TypeScript
+-   Node.js
+-   HTTP API
+-   synchronization endpoints
+-   knowledge endpoints
+-   validation and sync-safety logic
+
+## Legacy / migration
+
+-   Room
+-   KSP
+
+Room is not the active production source for the final Qdrant-native
+architecture.
+
+------------------------------------------------------------------------
+
+# Repository Structure
+
+``` text
+EdgeMemo/
+│
+├── app/
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/example/EdgeMemo/
+│       │   │
+│       │   ├── core/
+│       │   │   ├── record/
+│       │   │   └── sync/
+│       │   │
+│       │   ├── data/
+│       │   │   ├── cloud/
+│       │   │   ├── conflict/
+│       │   │   ├── local/
+│       │   │   ├── remote/
+│       │   │   ├── repository/
+│       │   │   ├── retrieval/
+│       │   │   └── sync/
+│       │   │
+│       │   ├── domain/
+│       │   │   ├── conflict/
+│       │   │   ├── memory/
+│       │   │   └── sync/
+│       │   │
+│       │   ├── native/
+│       │   │   └── qdrant/
+│       │   │
+│       │   ├── presentation/
+│       │   │   ├── ask/
+│       │   │   ├── conflicts/
+│       │   │   ├── dashboard/
+│       │   │   ├── machines/
+│       │   │   ├── record/
+│       │   │   ├── shell/
+│       │   │   └── sync/
+│       │   │
+│       │   └── ui/
+│       │       └── theme/
+│       │
+│       ├── test/
+│       └── androidTest/
+│
+├── backend/
+│   ├── src/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── validation.ts
+│   │
+│   └── tests/
+│
+├── rust/
+│   └── edgememo_qdrant/
+│       └── src/
+│           ├── jni.rs
+│           └── store.rs
+│
+├── docs/
+│   ├── PHASE_12_QDRANT_SYNC_ARCHITECTURE.md
+│   ├── PHASE_13_1_QDRANT_CUTOVER_AUDIT.md
+│   ├── PHASE_13_2_QDRANT_APPLICATION_CUTOVER.md
+│   ├── PHASE_13_3_QDRANT_RETRIEVAL_RAG_CUTOVER.md
+│   ├── PHASE_13_4_FINAL_QDRANT_CUTOVER.md
+│   ├── UI_PHASE_1_APPLICATION_SHELL.md
+│   ├── UI_PHASE_2_GROUNDED_ASK.md
+│   ├── UI_PHASE_3_MAINTENANCE_INTELLIGENCE.md
+│   ├── UI_PHASE_4_CONFLICT_RESOLUTION.md
+│   └── UI_PHASE_5_OPERATIONAL_ACTIVITY.md
+│
+├── AGENTS.md
+├── WORKING.md
+└── README.md
+```
+
+------------------------------------------------------------------------
+
+# Data Model
+
+A simplified record can be viewed conceptually as:
+
+``` json
+{
+  "id": "record-uuid",
+  "type": "MAINTENANCE",
+  "title": "Mechanical Seal Leakage",
+  "content": "Seal leakage observed during inspection...",
+  "subjectKey": "p-101/seal",
+  "version": 3,
+  "createdAt": "...",
+  "updatedAt": "...",
+  "policy": "LOCAL_ONLY",
+  "syncState": "SYNCED",
+  "contentHash": "...",
+  "tombstone": false
+}
+```
+
+The actual implementation contains additional metadata and provenance
+fields.
+
+------------------------------------------------------------------------
+
+# Data Policies
+
+EdgeMind supports data policies including:
+
+``` text
+LOCAL_ONLY
+SYNC
+SYNC_REDACTED
+```
+
+## LOCAL_ONLY
+
+The record remains local and does not become a normal cloud
+synchronization operation.
+
+## SYNC
+
+The record can participate in synchronization.
+
+## SYNC_REDACTED
+
+The record can synchronize after applying the defined redaction
+behavior.
+
+This makes data sharing an explicit policy decision instead of an
+accidental side effect.
+
+------------------------------------------------------------------------
+
+# Security and Safety Principles
+
+EdgeMind follows several important principles.
+
+### No fake operational data
+
+Application metrics should represent actual stored state.
+
+### No fake AI claims
+
+The application should not claim that a model diagnosed something when
+the evidence only supports an observation or inference.
+
+### Evidence before inference
+
+Answers should be grounded in retrieved records.
+
+### Explicit synchronization
+
+Local information does not automatically become cloud information
+without passing through the synchronization policy.
+
+### Deterministic synchronization
+
+Operation identifiers, content hashes, and version comparisons are
+deterministic.
+
+### No silent backend replacement
+
+Qdrant Edge is a required architectural component.
+
+------------------------------------------------------------------------
+
+# Testing and Verification
+
+The project contains extensive Android, Rust, backend, integration, and
+UI-oriented tests.
+
+The final development phases were verified through:
+
+``` text
+Android unit tests
+Rust tests
+Backend tests
+Android lint
+Debug APK assembly
+Physical-device verification
+```
+
+The Qdrant-native architecture was tested across:
+
+-   record persistence,
+-   payload-only records,
+-   vector records,
+-   filtering,
+-   indexes,
+-   restart persistence,
+-   crash boundaries,
+-   synchronization,
+-   retries,
+-   conflict resolution,
+-   tombstones,
+-   retrieval,
+-   RAG,
+-   UI workflows.
+
+The final development verification reached:
+
+``` text
+Android tests: 486+
+Rust tests:    10+
+Backend tests: 35+
+```
+
+Additional UI and operational tests were added after the core cutover.
+
+Some Compose/Robolectric end-to-end tests have had timing-related
+failures during development; these are not treated as proof that the
+production data path is broken. Physical-device behavior was separately
+verified for the hackathon workflow.
+
+------------------------------------------------------------------------
+
+# Demo Scenario
+
+The primary demonstration asset is:
+
+``` text
+P-101
+Industrial centrifugal pump
+```
+
+The prepared local dataset contains seven records covering maintenance
+and operational knowledge.
+
+The demo can show:
+
+### 1. Dashboard
+
+``` text
+EdgeMind
+Offline Industrial Intelligence
+```
+
+### 2. Machines
+
+Open:
+
+``` text
+P-101
+```
+
+### 3. Maintenance history
+
+Show the timeline of stored events.
+
+### 4. Ask
+
+Ask:
+
+> Why does P-101 keep experiencing mechanical seal failures?
+
+The application returns a grounded answer with evidence.
+
+### 5. Procedure question
+
+Ask:
+
+> What should a technician inspect before replacing the seal again?
+
+The answer is grounded in procedure/evidence records.
+
+### 6. Add information
+
+Use the record creation workflow to capture new field information.
+
+### 7. Offline story
+
+Explain that the local Qdrant Edge data remains available without
+requiring the cloud knowledge layer.
+
+------------------------------------------------------------------------
+
+# Current Limitations
+
+This project is a hackathon prototype and intentionally has several
+areas that can be expanded.
+
+## Document ingestion UI
+
+The UI architecture contains document/knowledge concepts, but the final
+hackathon demo focuses on structured operational records rather than a
+fully polished document-upload workflow.
+
+## Asset model
+
+Assets are currently derived from record namespaces such as:
+
+``` text
+p-101/...
+```
+
+rather than being represented by a fully independent first-class machine
+database entity.
+
+## Embedding model
+
+The current local embedding service is deterministic feature hashing
+rather than a neural embedding model.
+
+This provides an offline-compatible baseline but can be replaced with a
+stronger on-device embedding model in a future version.
+
+## Cloud AI
+
+Cloud AI is not required for the core offline workflow.
+
+Cloud-assisted answering can be extended independently without making it
+a prerequisite for local retrieval.
+
+## Production cloud deployment
+
+The backend integration exists as a synchronization/knowledge boundary,
+but production-scale deployment, authentication, observability, fleet
+management, and operational infrastructure would require additional
+work.
+
+------------------------------------------------------------------------
+
+# Build and Run
+
+## Requirements
+
+Recommended development environment:
+
+-   Android Studio
+-   JDK 21
+-   Android SDK
+-   Android NDK
+-   Rust toolchain
+-   Node.js/npm for backend development
+
+The project was developed and verified using an Android environment with
+JDK 21.
+
+------------------------------------------------------------------------
+
+## Clone
+
+``` bash
+git clone https://github.com/SubarnoSingh/EdgeMind.git
+cd EdgeMind
+```
+
+------------------------------------------------------------------------
+
+## Android build
+
+Set Java 21:
+
+``` bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+```
+
+Then:
+
+``` bash
+./gradlew assembleDebug
+```
+
+APK output:
+
+``` text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+------------------------------------------------------------------------
+
+## Android tests
+
+``` bash
+./gradlew test
+```
+
+For lint:
+
+``` bash
+./gradlew lint
+```
+
+------------------------------------------------------------------------
+
+## Install on a connected device
+
+``` bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+------------------------------------------------------------------------
+
+# Development Architecture
+
+The project was built incrementally rather than replacing the
+architecture in one step.
+
+The major architectural progression was:
+
+``` text
+Phase 1
+Qdrant Edge JNI foundation
+        ↓
+Phase 2
+Local memory + vector storage
+        ↓
+Phase 3
+Ingestion
+        ↓
+Phase 4
+Hybrid retrieval / RAG
+        ↓
+Phase 5–8
+Policy + legacy sync + cloud integration
+        ↓
+Phase 9
+Qdrant-native architecture design
+        ↓
+Phase 10
+Structured Qdrant persistence
+        ↓
+Phase 11
+Qdrant-native record layer
+        ↓
+Phase 12
+Qdrant-native synchronization
+        ↓
+Phase 13
+Full application / retrieval / cloud cutover
+        ↓
+UI phases
+Industrial operational interface
+```
+
+This history is documented in the `docs/` directory.
+
+------------------------------------------------------------------------
+
+# Architectural Guarantees
+
+The final architecture is designed around the following guarantees:
+
+### Local-first
+
+The application does not require cloud availability to access local
+knowledge.
+
+### Qdrant-native
+
+The production local record and retrieval architecture uses Qdrant Edge.
+
+### Idempotent sync
+
+Deterministic operation IDs allow repeated delivery attempts without
+intentionally duplicating operations.
+
+### Version-aware writes
+
+Older versions should not silently overwrite newer knowledge.
+
+### Durable conflict evidence
+
+Conflicts remain inspectable until explicitly resolved.
+
+### Tombstone safety
+
+Deleted records are represented and synchronized as durable state.
+
+### Crash recovery
+
+Sync operations can recover from interrupted/in-flight processing.
+
+### Grounded answers
+
+The Ask pipeline is tied to retrieved evidence rather than unconstrained
+generated claims.
+
+------------------------------------------------------------------------
+
+# Documentation
+
+Detailed architecture documents are available under:
+
+``` text
+docs/
+```
+
+Important documents include:
+
+  ----------------------------------------------------------------------------------
+  Document                                       Purpose
+  ---------------------------------------------- -----------------------------------
+  `PHASE_12_QDRANT_SYNC_ARCHITECTURE.md`         Qdrant-native synchronization
+                                                 architecture
+
+  `PHASE_13_1_QDRANT_CUTOVER_AUDIT.md`           Audit of the old and new
+                                                 persistence paths
+
+  `PHASE_13_2_QDRANT_APPLICATION_CUTOVER.md`     Application persistence cutover
+
+  `PHASE_13_3_QDRANT_RETRIEVAL_RAG_CUTOVER.md`   Retrieval and RAG cutover
+
+  `PHASE_13_4_FINAL_QDRANT_CUTOVER.md`           Final Qdrant architecture
+
+  `UI_PHASE_1_APPLICATION_SHELL.md`              Application shell
+
+  `UI_PHASE_2_GROUNDED_ASK.md`                   Grounded Ask
+
+  `UI_PHASE_3_MAINTENANCE_INTELLIGENCE.md`       Maintenance workspace
+
+  `UI_PHASE_4_CONFLICT_RESOLUTION.md`            Conflict workflow
+
+  `UI_PHASE_5_OPERATIONAL_ACTIVITY.md`           Operational activity and record
+                                                 creation
+  ----------------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+# Project Status
+
+**Status: Hackathon prototype / functional demonstration**
+
+The current implementation includes:
+
+-   Qdrant Edge native persistence
+-   Kotlin/JNI/Rust integration
+-   structured operational records
+-   vector storage
+-   hybrid retrieval
+-   grounded Ask
+-   asset-oriented maintenance workspace
+-   local record creation
+-   synchronization architecture
+-   cloud integration boundary
+-   conflict resolution
+-   tombstone handling
+-   Qdrant-native sync operations
+-   physical Android device verification
+
+The core demonstration path is functional end-to-end.
+
+------------------------------------------------------------------------
+
+# Future Directions
+
+Potential next iterations include:
+
+## Better on-device embeddings
+
+Replace the deterministic feature-hashing baseline with a compact neural
+embedding model optimized for Android/NNAPI/GPU/NPU execution.
+
+## Document intelligence
+
+Add a polished ingestion pipeline for:
+
+-   PDF manuals,
+-   maintenance reports,
+-   inspection documents,
+-   images,
+-   scanned documents,
+-   structured work orders.
+
+## First-class asset management
+
+Introduce a dedicated machine/asset domain model with:
+
+-   equipment hierarchy,
+-   plant → area → machine relationships,
+-   serial numbers,
+-   manufacturer metadata,
+-   asset health.
+
+## Multimodal maintenance intelligence
+
+Allow technicians to attach:
+
+-   photographs,
+-   vibration data,
+-   inspection images,
+-   diagrams,
+-   audio notes.
+
+## Advanced local AI
+
+Introduce fully on-device:
+
+-   small language models,
+-   rerankers,
+-   specialized maintenance classifiers,
+-   anomaly detection,
+-   fault prediction.
+
+## Fleet synchronization
+
+Extend the cloud layer into a multi-device industrial knowledge platform
+supporting:
+
+-   technicians,
+-   supervisors,
+-   maintenance planners,
+-   centralized knowledge,
+-   fleet analytics.
+
+------------------------------------------------------------------------
+
+# Design Philosophy
+
+EdgeMind is built around a simple principle:
+
+> **AI should assist the technician, but the evidence should remain
+> inspectable.**
+
+The system therefore treats industrial knowledge as something that
+should be:
+
+-   available locally,
+-   persisted reliably,
+-   searchable,
+-   traceable,
+-   synchronized deliberately,
+-   and presented with evidence.
+
+The cloud is useful.
+
+The network is useful.
+
+AI is useful.
+
+But the technician should not become dependent on any one of them merely
+to access the knowledge already stored on the device.
+
+------------------------------------------------------------------------
+
+# Project
+
+**EdgeMind --- Offline Industrial Intelligence**
+
+Repository:
+
+https://github.com/SubarnoSingh/EdgeMind
+
+Built as an offline-first Android industrial maintenance intelligence
+prototype using **Kotlin + Jetpack Compose + Rust + Qdrant Edge + hybrid
+retrieval/RAG**.
