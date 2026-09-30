@@ -20,6 +20,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+
+        <!-- Phase 12B.12: WorkManager on-demand initialization. The default
+             androidx.startup initializer is removed; configuration comes from
+             EdgeMindApplication (Configuration.Provider), so scheduled sync
+             work survives process death and works without an Activity. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="remove" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

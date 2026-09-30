@@ -30,6 +30,7 @@ fn get_f32_vector(env: &mut JNIEnv, array: &JFloatArray) -> Result<Vec<f32>> {
     Ok(buffer)
 }
 
+
 fn shard_ptr(handle: jlong) -> Result<*mut store::EdgeShard> {
     if handle == 0 {
         Err(EdgeError::InvalidHandle)
@@ -253,6 +254,40 @@ unsafe extern "system" fn native_upsert_with_payload(
     }
 }
 
+unsafe extern "system" fn native_upsert_payload_only(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: JString,
+    payload: JString,
+) {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let id = get_string(&mut env, &id)?;
+        let payload = parse_payload(&mut env, &payload)?;
+        store::upsert_payload_only(shard, &id, payload)
+    });
+    if let Err(err) = result {
+        throw_err(&mut env, err);
+    }
+}
+
+unsafe extern "system" fn native_upsert_batch_with_payload(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    records_json: JString,
+) {
+    let result = guard(|| {
+        let shard = &*shard_ptr(handle)?;
+        let records_json = get_string(&mut env, &records_json)?;
+        store::upsert_batch_with_payload(shard, &records_json)
+    });
+    if let Err(err) = result {
+        throw_err(&mut env, err);
+    }
+}
+
 unsafe extern "system" fn native_retrieve<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -411,6 +446,16 @@ fn jni_methods() -> Vec<jni::NativeMethod> {
             "nativeUpsertWithPayload",
             "(JLjava/lang/String;[FLjava/lang/String;)V",
             native_upsert_with_payload as *const () as usize,
+        ),
+        (
+            "nativeUpsertPayloadOnly",
+            "(JLjava/lang/String;Ljava/lang/String;)V",
+            native_upsert_payload_only as *const () as usize,
+        ),
+        (
+            "nativeUpsertBatchWithPayload",
+            "(JLjava/lang/String;)V",
+            native_upsert_batch_with_payload as *const () as usize,
         ),
         (
             "nativeRetrieve",

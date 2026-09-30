@@ -15,6 +15,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Production Ask/RAG ViewModel. Coordinates the EXISTING application/domain
+ * pipeline only ([AskQuestionUseCase] → escalating → Qdrant-grounded RAG);
+ * it performs no retrieval, filtering, or provenance logic of its own.
+ *
+ * States: IDLE → RETRIEVING → (GENERATING | ESCALATING) →
+ * SUCCESS | INSUFFICIENT | ERROR. Insufficient evidence is a first-class,
+ * non-error outcome; cloud escalation is reported only when the real domain
+ * state carries it.
+ */
 class AskViewModel(
     private val askQuestion: AskQuestionUseCase,
     private val cacheCloudAnswer: CacheCloudAnswerUseCase? = null,
@@ -23,20 +33,57 @@ class AskViewModel(
     private val _uiState = MutableStateFlow(AskUiState())
     val uiState: StateFlow<AskUiState> = _uiState.asStateFlow()
 
+    /** Text of the last executed request, so retry replays exactly it. */
+    private var lastExecutedQuery: String? = null
+
     fun onQuestionChange(value: String) {
         _uiState.update { it.copy(question = value) }
+    }
+
+    /**
+     * Opens Ask with an asset context (from Machine Detail). The namespace is
+     * surfaced in the UI and appended to the executed query by [ask] — real
+     * query text through the real pipeline, never a UI-side result filter.
+     */
+    fun setAssetContext(namespace: String?) {
+        _uiState.update { it.copy(assetNamespace = namespace?.trim()?.lowercase()?.ifBlank { null }) }
     }
 
     fun ask() {
         val question = _uiState.value.question.trim()
         if (question.isEmpty()) return
+        submit(question)
+    }
+
+    /** Re-executes the last executed query verbatim (error retry). */
+    fun retry() {
+        val previous = lastExecutedQuery ?: _uiState.value.executedQuestion ?: return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(errorMessage = null, phase = AskPhase.RETRIEVING)
+            }
+            execute(previous)
+        }
+    }
+
+    private fun submit(rawQuestion: String) {
+        val asset = _uiState.value.assetNamespace
+        // Honest asset grounding: the real token joins the query text so the
+        // pipeline's own identifier-weighted keyword channel and dense
+        // similarity act on it. No result set is filtered here.
+        val executed = if (asset != null && !normalizeForContains(rawQuestion).contains(asset)) {
+            "$rawQuestion $asset"
+        } else {
+            rawQuestion
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     // The submitted query moves into the conversation history;
                     // the input field is cleared so it is never shown twice.
                     question = "",
-                    submittedQuestion = question,
+                    submittedQuestion = rawQuestion,
+                    executedQuestion = executed,
                     phase = AskPhase.RETRIEVING,
                     answer = "",
                     sources = emptyList(),
@@ -49,54 +96,59 @@ class AskViewModel(
                     cacheMessage = null,
                 )
             }
-            val response = try {
-                askQuestion(RagRequest(question = question)) { stage ->
-                    _uiState.update {
-                        it.copy(
-                            phase = when (stage) {
-                                RagStage.RETRIEVING -> AskPhase.RETRIEVING
-                                RagStage.GENERATING -> AskPhase.GENERATING
-                                RagStage.ESCALATING -> AskPhase.ESCALATING
-                            },
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(phase = AskPhase.ERROR, errorMessage = e.message ?: "ask failed")
-                }
-                return@launch
-            }
+            execute(executed)
+        }
+    }
 
-            when (response.status) {
-                AnswerStatus.ANSWERED -> _uiState.update {
+    private suspend fun execute(executedQuestion: String) {
+        lastExecutedQuery = executedQuestion
+        val response = try {
+            askQuestion(RagRequest(question = executedQuestion)) { stage ->
+                _uiState.update {
                     it.copy(
-                        phase = AskPhase.SUCCESS,
-                        answer = response.answer,
-                        sources = response.sources,
-                        evidence = response.evidence,
-                        escalation = response.escalation,
+                        phase = when (stage) {
+                            RagStage.RETRIEVING -> AskPhase.RETRIEVING
+                            RagStage.GENERATING -> AskPhase.GENERATING
+                            RagStage.ESCALATING -> AskPhase.ESCALATING
+                        },
                     )
                 }
-                AnswerStatus.INSUFFICIENT_EVIDENCE -> _uiState.update {
-                    it.copy(
-                        phase = AskPhase.INSUFFICIENT,
-                        answer = response.answer,
-                        sources = response.sources,
-                        evidence = response.evidence,
-                        escalation = response.escalation,
-                    )
-                }
-                AnswerStatus.ERROR -> _uiState.update {
-                    it.copy(
-                        phase = AskPhase.ERROR,
-                        answer = response.answer,
-                        sources = response.sources,
-                        evidence = response.evidence,
-                        errorMessage = response.error?.message ?: response.answer,
-                        escalation = response.escalation,
-                    )
-                }
+            }
+        } catch (e: Exception) {
+            _uiState.update {
+                it.copy(phase = AskPhase.ERROR, errorMessage = e.message ?: "ask failed")
+            }
+            return
+        }
+
+        when (response.status) {
+            AnswerStatus.ANSWERED -> _uiState.update {
+                it.copy(
+                    phase = AskPhase.SUCCESS,
+                    answer = response.answer,
+                    sources = response.sources,
+                    evidence = response.evidence,
+                    escalation = response.escalation,
+                )
+            }
+            AnswerStatus.INSUFFICIENT_EVIDENCE -> _uiState.update {
+                it.copy(
+                    phase = AskPhase.INSUFFICIENT,
+                    answer = response.answer,
+                    sources = response.sources,
+                    evidence = response.evidence,
+                    escalation = response.escalation,
+                )
+            }
+            AnswerStatus.ERROR -> _uiState.update {
+                it.copy(
+                    phase = AskPhase.ERROR,
+                    answer = response.answer,
+                    sources = response.sources,
+                    evidence = response.evidence,
+                    errorMessage = response.error?.message ?: response.answer,
+                    escalation = response.escalation,
+                )
             }
         }
     }
@@ -140,7 +192,12 @@ class AskViewModel(
         }
     }
 
+    /** Full reset — a new question starts without asset context. */
     fun clear() {
+        lastExecutedQuery = null
         _uiState.value = AskUiState()
     }
+
+    private fun normalizeForContains(text: String): String =
+        text.lowercase().filter { it.isLetterOrDigit() }
 }

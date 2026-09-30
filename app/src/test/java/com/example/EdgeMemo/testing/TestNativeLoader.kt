@@ -13,7 +13,21 @@ object TestNativeLoader {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
-            System.load(nativeLibraryPath())
+            val path = nativeLibraryPath()
+            try {
+                System.load(path)
+            } catch (_: UnsatisfiedLinkError) {
+                // Robolectric gives each test configuration (e.g. NATIVE
+                // graphics for Compose) its own classloader, and the JDK
+                // refuses to map the SAME file into two of them. Load a
+                // private copy instead — each copy binds the native functions
+                // for its own classloader; on-disk shards are still protected
+                // by qdrant-edge's own file locking.
+                val copy = File.createTempFile("edgememo-native-copy-", ".so")
+                File(path).copyTo(copy, overwrite = true)
+                copy.deleteOnExit()
+                System.load(copy.absolutePath)
+            }
             loaded = true
         }
     }

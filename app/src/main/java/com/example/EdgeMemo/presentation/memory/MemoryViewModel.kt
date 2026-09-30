@@ -23,7 +23,7 @@ import com.example.EdgeMemo.domain.memory.ListMemoriesUseCase
 import com.example.EdgeMemo.domain.memory.SearchMemoriesUseCase
 import com.example.EdgeMemo.core.sync.SyncSummary
 import com.example.EdgeMemo.domain.policy.PolicyEngine
-import com.example.EdgeMemo.domain.sync.SyncOutboxWriter
+import com.example.EdgeMemo.domain.sync.SyncStatusReader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,7 +38,7 @@ class MemoryViewModel(
     private val documentReader: ContentResolverDocumentReader,
     private val ingestDocument: IngestDocumentUseCase,
     private val policyEngine: PolicyEngine,
-    private val syncOutboxWriter: SyncOutboxWriter? = null,
+    private val syncStatusReader: SyncStatusReader? = null,
     private val onMemoriesChanged: () -> Unit = {},
     private val pullCloudKnowledge: PullCloudKnowledgeUseCase? = null,
     private val listConflicts: ListConflictsUseCase? = null,
@@ -250,7 +250,7 @@ class MemoryViewModel(
     private suspend fun reload() {
         try {
             val memories = listMemories()
-            val counts = syncOutboxWriter?.outboxCounts() ?: SyncSummary()
+            val counts = syncStatusReader?.outboxCounts() ?: SyncSummary()
             val unresolved = countUnresolvedConflicts?.invoke() ?: 0L
             _uiState.update {
                 val results = if (it.searchActive) {

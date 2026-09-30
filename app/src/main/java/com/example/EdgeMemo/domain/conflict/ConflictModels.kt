@@ -34,6 +34,13 @@ data class Conflict(
     val state: ConflictResolutionState,
     val resolvedAt: Long? = null,
     val resolution: String? = null,
+    /**
+     * UI Phase 4 — the recorded side's tombstone state, carried verbatim from
+     * the durable conflict evidence (12B.9 recorder schema). The workspace
+     * shows these so a deleted side is never misread as merely "older".
+     */
+    val localTombstone: Boolean = false,
+    val incomingTombstone: Boolean = false,
 )
 
 interface ConflictRepository {

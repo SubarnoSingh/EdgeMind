@@ -16,7 +16,7 @@ enum class AskPhase {
 }
 
 data class AskUiState(
-    /** Live text of the bottom input field. Cleared on submit. */
+    /** Live text of the question composer. Cleared on submit. */
     val question: String = "",
     /** The last submitted query, rendered as the conversation's user message. */
     val submittedQuestion: String? = null,
@@ -34,6 +34,17 @@ data class AskUiState(
     val savedToMemory: Boolean = false,
     /** Human message about the save attempt (saved / already present / refused). */
     val cacheMessage: String? = null,
+    /**
+     * Asset context (subject namespace, e.g. "p101) when Ask was opened from
+     * an asset screen. It is appended to the REAL search query by the
+     * pipeline's own tokenization — it is NOT a fabricated result filter
+     * (the frozen 13.3 retrieval exposes no hard asset-scope API; see
+     * docs/UI_PHASE_2_GROUNDED_ASK.md). Cleared on [AskViewModel.clear].
+     */
+    val assetNamespace: String? = null,
+    /** The question text actually executed for the current result, including
+     *  any asset-context suffix. Rendered so the user sees what was searched. */
+    val executedQuestion: String? = null,
 ) {
     val isBusy: Boolean
         get() = phase == AskPhase.RETRIEVING || phase == AskPhase.GENERATING || phase == AskPhase.ESCALATING
@@ -48,6 +59,14 @@ data class AskUiState(
     val isCloudAnswer: Boolean
         get() = escalation is CloudEscalation.Answered
 
+    /** Answer provenance from the REAL response state, never inferred. */
+    val provenance: AskProvenance
+        get() = when {
+            escalation is CloudEscalation.Answered -> AskProvenance.CLOUD
+            phase == AskPhase.SUCCESS || phase == AskPhase.INSUFFICIENT -> AskProvenance.LOCAL
+            else -> AskProvenance.NONE
+        }
+
     val isOffline: Boolean
         get() = escalation == CloudEscalation.Offline
 
@@ -57,3 +76,6 @@ data class AskUiState(
     val canSave: Boolean
         get() = isCloudAnswer && !savedToMemory && !cacheInFlight
 }
+
+/** Where the current answer came from — only real escalation states exist. */
+enum class AskProvenance { NONE, LOCAL, CLOUD }

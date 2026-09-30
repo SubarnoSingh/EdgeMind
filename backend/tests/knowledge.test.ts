@@ -123,3 +123,49 @@ test("cloud search is honest 503 without an embedding provider", async () => {
     await closeServer(server.server);
   }
 });
+
+test("curated knowledge ingest does not overwrite newer cloud state", async () => {
+  const { qdrant, app } = setup();
+  await qdrant.ensureCollection("cloud_knowledge", 1024);
+  const server = await startServer(app);
+  try {
+    const current = ingestItem(UUID_A, "revision 2", 2);
+    const first = await fetch(`${server.baseUrl}/knowledge/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([current]),
+    });
+    assert.equal(first.status, 201);
+
+    const stale = ingestItem(UUID_A, "revision 1", 1);
+    const staleResponse = await fetch(`${server.baseUrl}/knowledge/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([stale]),
+    });
+    assert.equal(staleResponse.status, 201);
+    assert.deepEqual(await staleResponse.json(), {
+      ingested: 0,
+      duplicates: 0,
+      stale: 1,
+      conflicts: 0,
+    });
+
+    const conflicting = { ...current, contentHash: "different-hash" };
+    const conflictResponse = await fetch(`${server.baseUrl}/knowledge/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([conflicting]),
+    });
+    assert.deepEqual(await conflictResponse.json(), {
+      ingested: 0,
+      duplicates: 0,
+      stale: 0,
+      conflicts: 1,
+    });
+    const stored = await qdrant.retrieve("cloud_knowledge", [UUID_A]);
+    assert.equal(stored[0].payload.version, 2);
+  } finally {
+    await closeServer(server.server);
+  }
+});

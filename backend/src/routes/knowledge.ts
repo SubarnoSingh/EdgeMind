@@ -10,6 +10,10 @@ import {
   UNAUTHORIZED,
 } from "../errors.js";
 import type { CloudPoint } from "../qdrant/gateway.js";
+import {
+  classifyVersionedCloudState,
+  cloudRecordMutex,
+} from "../services/syncSafety.js";
 
 const PAGE_LIMIT = 50;
 const MAX_SEARCH_RESULTS = 20;
@@ -91,31 +95,61 @@ export function knowledgeRouter(ctx: AppContext): Router {
 
       const items = validateKnowledgeIngest(req.body);
       const points: CloudPoint[] = [];
+      let duplicates = 0;
+      let stale = 0;
+      let conflicts = 0;
       for (const item of items) {
-        const vector = ctx.embedding.configured
-          ? await ctx.embedding.embed(`${item.title}\n${item.content}`)
-          : undefined;
-        points.push({
-          id: item.memoryId,
-          payload: {
-            memoryId: item.memoryId,
-            subjectKey: item.subjectKey,
-            title: item.title,
-            content: item.content,
-            contentHash: item.contentHash,
+        await cloudRecordMutex.run(item.memoryId, async () => {
+          const existing = (await ctx.qdrant.retrieve(ctx.config.cloudKnowledgeCollection, [item.memoryId]))[0] ?? null;
+          const classification = classifyVersionedCloudState(existing, {
             version: item.version,
-            updatedAt: item.updatedAt,
-            origin: item.origin,
-            authority: item.authority,
-            supersedes: item.supersedes,
+            contentHash: item.contentHash,
             tombstone: item.tombstone,
-            metadata: item.metadata,
-          },
-          vector,
+          });
+          if (classification === "DUPLICATE") {
+            duplicates++;
+            return;
+          }
+          if (classification === "STALE") {
+            stale++;
+            return;
+          }
+          if (classification === "CONFLICT") {
+            conflicts++;
+            return;
+          }
+
+          const vector = ctx.embedding.configured
+            ? await ctx.embedding.embed(`${item.title}\n${item.content}`)
+            : undefined;
+          const point: CloudPoint = {
+            id: item.memoryId,
+            payload: {
+              memoryId: item.memoryId,
+              subjectKey: item.subjectKey,
+              title: item.title,
+              content: item.content,
+              contentHash: item.contentHash,
+              version: item.version,
+              updatedAt: item.updatedAt,
+              origin: item.origin,
+              authority: item.authority,
+              supersedes: item.supersedes,
+              tombstone: item.tombstone,
+              metadata: item.metadata,
+            },
+            vector,
+          };
+          await ctx.qdrant.upsert(ctx.config.cloudKnowledgeCollection, [point]);
+          points.push(point);
         });
       }
-      await ctx.qdrant.upsert(ctx.config.cloudKnowledgeCollection, points);
-      res.status(201).json({ ingested: items.length });
+      res.status(201).json({
+        ingested: points.length,
+        duplicates,
+        stale,
+        conflicts,
+      });
     } catch (e) {
       if (e instanceof ApiError) {
         next(e);

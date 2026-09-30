@@ -14,6 +14,8 @@ internal object NativeBridge {
     // Phase-10 spike: record payload functions. JSON strings cross the JNI
     // boundary; the Rust side parses/serializes them with serde_json.
     external fun nativeUpsertWithPayload(handle: Long, id: String, vector: FloatArray, payload: String)
+    external fun nativeUpsertPayloadOnly(handle: Long, id: String, payload: String)
+    external fun nativeUpsertBatchWithPayload(handle: Long, recordsJson: String)
     external fun nativeRetrieve(handle: Long, idsJson: String): String
     external fun nativeScroll(handle: Long, filterJson: String?, limit: Int, offsetId: String?): String
     external fun nativeCountFiltered(handle: Long, filterJson: String?, exact: Boolean): Long

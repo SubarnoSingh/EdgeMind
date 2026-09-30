@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "title": "Audit required docs and current Phase 1–4 implementation",
+      "status": "done"
+    },
+    {
+      "title": "Design the smallest compliant activity workflow",
+      "status": "done"
+    },
+    {
+      "title": "Implement activity UI, state, navigation, and creation flows",
+      "status": "in-progress"
+    },
+    {
+      "title": "Add activity, integration, E2E, and architecture tests",
+      "status": "pending"
+    },
+    {
+      "title": "Run Android, Rust, backend, lint, and build verification",
+      "status": "pending"
+    },
+    {
+      "title": "Document Phase 5 and update WORKING.md",
+      "status": "pending"
+    },
+    {
+      "title": "Review final diff and report verified results",
+      "status": "pending"
+    }
+  ],
+  "updated_at": "2026-09-30T04:23:49.107Z",
+  "session_id": "01a0f083-f62f-77e4-bb34-06cd7f766f4d"
+}

@@ -28,6 +28,13 @@ class CloudHttpClient(
         val statusCode: Int,
         val code: String?,
         val detail: String?,
+        /**
+         * The full (small) error body the backend returned. Legacy callers
+         * ignore it; the Phase 12 protocol reads machine-classifiable 409
+         * responses (STALE/CONFLICT + cloud state) from non-2xx bodies, which
+         * truncated [detail] cannot carry. Never request content.
+         */
+        val body: String = "",
     ) : IOException("backend responded $statusCode: ${detail ?: code ?: "no detail"}")
 
     suspend fun putJson(
@@ -69,7 +76,7 @@ class CloudHttpClient(
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
                 val error = parseError(text)
-                throw HttpFailure(status, error.first, error.second)
+                throw HttpFailure(status, error.first, error.second, text)
             }
             text
         } finally {

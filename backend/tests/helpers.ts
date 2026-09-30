@@ -19,6 +19,8 @@ export class FakeQdrantGateway implements QdrantGateway {
 
   readonly ensureCalls: string[] = [];
 
+  upsertCalls = 0;
+
   async listCollections(): Promise<string[]> {
     return [...this.collections.keys()];
   }
@@ -39,6 +41,7 @@ export class FakeQdrantGateway implements QdrantGateway {
   }
 
   async upsert(collection: string, points: CloudPoint[]): Promise<void> {
+    this.upsertCalls += 1;
     const target = this.require(collection);
     for (const point of points) {
       target.set(point.id, point);

@@ -8,31 +8,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.example.EdgeMemo.presentation.shell.EdgeMindShell
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.EdgeMemo.presentation.ask.AskScreen
 import com.example.EdgeMemo.presentation.components.AuroraBackground
-import com.example.EdgeMemo.presentation.components.EdgeMode
-import com.example.EdgeMemo.presentation.components.EdgeTopBar
-import com.example.EdgeMemo.presentation.memory.MemoryScreen
-import com.example.EdgeMemo.presentation.settings.SettingsScreen
 import com.example.EdgeMemo.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -111,10 +101,6 @@ private fun EdgeMindRoot(container: com.example.EdgeMemo.di.AppContainer) {
         )
     }
 
-    var mode by remember { mutableStateOf(EdgeMode.ASK) }
-    var showSettings by remember { mutableStateOf(false) }
-    val online by container.connectivityStatus.isOnline.collectAsState()
-
     // Keep system-bar icon contrast in sync with the IN-APP theme toggle
     // (default edge-to-edge styles follow the system dark mode, which can
     // disagree with the user's chosen EdgeMind appearance).
@@ -132,47 +118,13 @@ private fun EdgeMindRoot(container: com.example.EdgeMemo.di.AppContainer) {
     MyApplicationTheme(darkTheme = themeState.darkTheme) {
         Box(Modifier.fillMaxSize()) {
             AuroraBackground(darkTheme = themeState.darkTheme)
-
-            if (showSettings) {
-                BackHandler(onBack = { showSettings = false })
-                SettingsScreen(
-                    darkTheme = themeState.darkTheme,
-                    onToggleTheme = themeState::toggle,
-                    profileName = profileState.name,
-                    onProfileNameChange = profileState::updateName,
-                    memoryViewModel = viewModel(factory = container.memoryViewModelFactory),
-                    onBack = { showSettings = false },
-                )
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    EdgeTopBar(
-                        darkTheme = themeState.darkTheme,
-                        onToggleTheme = themeState::toggle,
-                        mode = mode,
-                        onModeChange = { mode = it },
-                        onOpenSettings = { showSettings = true },
-                        modifier = Modifier.statusBarsPadding(),
-                        online = online,
-                    )
-                    Crossfade(
-                        targetState = mode,
-                        animationSpec = tween(durationMillis = 260),
-                        label = "mode",
-                    ) { currentMode ->
-                        Box(Modifier.fillMaxSize()) {
-                            when (currentMode) {
-                                EdgeMode.ASK -> AskScreen(
-                                    viewModel = viewModel(factory = container.askViewModelFactory),
-                                    profileName = profileState.name,
-                                )
-                                EdgeMode.MEMORY -> MemoryScreen(
-                                    viewModel = viewModel(factory = container.memoryViewModelFactory),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            EdgeMindShell(
+                container = container,
+                darkTheme = themeState.darkTheme,
+                onToggleTheme = themeState::toggle,
+                profileName = profileState.name,
+                onProfileNameChange = profileState::updateName,
+            )
         }
     }
 }

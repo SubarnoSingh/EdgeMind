@@ -27,7 +27,7 @@ export interface CloudKnowledgeItem {
 export interface SyncPushRequest {
   operationId: string;
   memoryId: string;
-  operationType: "UPSERT";
+  operationType: "UPSERT" | "TOMBSTONE";
   title: string;
   content: string;
   memory: {
@@ -43,6 +43,7 @@ export interface SyncPushRequest {
     source: string;
     supersedes: string | null;
     tombstone: boolean;
+    deletedAt?: number | null;
     updatedAt: number;
     metadata: Record<string, string>;
   };
