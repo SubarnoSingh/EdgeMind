@@ -26,21 +26,29 @@ class ExtractiveLLMService : LLMService {
             .tokens(QueryNormalizer.normalize(request.question))
             .toSet()
 
-        val selected = ArrayList<Pair<Int, String>>()
+        // Score every sentence, keep the best ones (at most MAX_PER_SOURCE per
+        // evidence so answers span records), then emit in evidence order.
+        data class Candidate(val rank: Int, val position: Int, val index: Int, val sentence: String, val score: Int)
         val seenSentences = HashSet<String>()
-
-        for (evidence in request.evidence) {
-            if (selected.size >= request.maxSentences) break
-            for (sentence in splitSentences(evidence.text)) {
-                if (selected.size >= request.maxSentences) break
+        val candidates = ArrayList<Candidate>()
+        request.evidence.forEachIndexed { rank, evidence ->
+            splitSentences(evidence.text).forEachIndexed { position, sentence ->
                 val normalizedSentence = QueryNormalizer.normalize(sentence)
-                if (normalizedSentence.isEmpty()) continue
-                val overlap = QueryNormalizer.tokens(normalizedSentence).count { it in queryTerms }
-                if (overlap <= 0) continue
-                if (!seenSentences.add(normalizedSentence)) continue
-                selected.add(evidence.index to sentence.trim())
+                if (normalizedSentence.isEmpty() || !seenSentences.add(normalizedSentence)) return@forEachIndexed
+                val score = QueryNormalizer.tokens(normalizedSentence).sumOf { token ->
+                    queryTerms.maxOfOrNull { matchWeight(it, token) } ?: 0
+                }
+                if (score > 0) candidates.add(Candidate(rank, position, evidence.index, sentence.trim(), score))
             }
         }
+        val perSource = HashMap<Int, Int>()
+        val selected = candidates
+            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.rank }.thenBy { it.position })
+            .filter { perSource.merge(it.rank, 1, Int::plus)!! <= MAX_PER_SOURCE }
+            .take(request.maxSentences)
+            .sortedWith(compareBy<Candidate> { it.rank }.thenBy { it.position })
+            .map { it.index to it.sentence }
+            .toMutableList()
 
         if (selected.isEmpty()) {
             val top = request.evidence.first()
@@ -69,7 +77,27 @@ class ExtractiveLLMService : LLMService {
             .filter { it.isNotEmpty() }
     }
 
+    /**
+     * Exact match, a shared word core ("confirmed"/"unconfirmed",
+     * "failure"/"failures"), or an identifier whose letter prefix abbreviates
+     * the query word ("incident" <-> "inc-1042"). The identifier case weighs
+     * most: it is the specific answer to "which incident/part/..." questions.
+     */
+    private fun matchWeight(term: String, token: String): Int {
+        if (term == token) return 1
+        val shorter = if (term.length <= token.length) term else token
+        val longer = if (shorter === term) token else term
+        if (shorter.length >= 5 && longer.contains(shorter)) return 1
+        if (QueryNormalizer.isIdentifier(token)) {
+            val prefix = token.takeWhile { it.isLetter() }
+            if (prefix.length >= 3 && term.startsWith(prefix)) return IDENTIFIER_WEIGHT
+        }
+        return 0
+    }
+
     private companion object {
         val SENTENCE_BOUNDARY = Regex("(?<=[.!?])\\s+")
+        const val MAX_PER_SOURCE = 2
+        const val IDENTIFIER_WEIGHT = 3
     }
 }

@@ -4,7 +4,7 @@ import java.io.File
 
 object TestNativeLoader {
     private const val LIB_PROPERTY = "edgememo.qdrant.lib"
-    private const val LIB_RELATIVE_PATH = "build/generated/native-libs/host/libedgememo_qdrant.so"
+    private val LIB_RELATIVE_PATH = "build/generated/native-libs/host/" + System.mapLibraryName("edgememo_qdrant")
 
     @Volatile
     private var loaded = false
@@ -23,7 +23,7 @@ object TestNativeLoader {
                 // private copy instead — each copy binds the native functions
                 // for its own classloader; on-disk shards are still protected
                 // by qdrant-edge's own file locking.
-                val copy = File.createTempFile("edgememo-native-copy-", ".so")
+                val copy = File.createTempFile("edgememo-native-copy-", "." + LIB_RELATIVE_PATH.substringAfterLast('.'))
                 File(path).copyTo(copy, overwrite = true)
                 copy.deleteOnExit()
                 System.load(copy.absolutePath)

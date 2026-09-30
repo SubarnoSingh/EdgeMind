@@ -1,7 +1,10 @@
 package com.example.EdgeMemo
 
 import android.app.Application
+import android.os.Build
+import android.util.Log
 import androidx.work.Configuration
+import com.example.EdgeMemo.data.seed.CubicalDataset
 import com.example.EdgeMemo.di.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +44,12 @@ class EdgeMindApplication : Application(), Configuration.Provider {
         startupScope.launch {
             runCatching { container.migrateLegacyRoomDataIfNeeded() }
                 .onFailure { container.recordLegacyImportFailure(it) }
+            // Load the P-101 cubical dataset once; a failure retries next start.
+            // Skipped under Robolectric so host tests keep their empty stores.
+            if (Build.FINGERPRINT != "robolectric") {
+                runCatching { CubicalDataset.seedIfNeeded(this@EdgeMindApplication, container.memoryRepository) }
+                    .onFailure { Log.e("EdgeMind", "cubical dataset seed failed", it) }
+            }
         }
     }
 }

@@ -16,7 +16,7 @@ val cargoBuildHost = tasks.register<Exec>("cargoBuildHost") {
 
 val copyHostNativeLibrary = tasks.register<Copy>("copyHostNativeLibrary") {
     dependsOn(cargoBuildHost)
-    from(rustProject.resolve("target/release/libedgememo_qdrant.so"))
+    from(rustProject.resolve("target/release/" + System.mapLibraryName("edgememo_qdrant")))
     into(layout.buildDirectory.dir("generated/native-libs/host"))
 }
 
@@ -37,8 +37,17 @@ val androidSdkDir = System.getenv("ANDROID_SDK_ROOT")
 
 val ndkVersion = "27.2.12479018"
 val ndkDir = File(File(androidSdkDir.removeSuffix("/"), "ndk"), ndkVersion)
-val ndkBinDir = File(ndkDir, "toolchains/llvm/prebuilt/linux-x86_64/bin")
-val rustupCargo = File(System.getProperty("user.home"), ".cargo/bin/cargo")
+val isWindowsHost = System.getProperty("os.name").startsWith("Windows")
+val ndkHostTag = when {
+    isWindowsHost -> "windows-x86_64"
+    System.getProperty("os.name").startsWith("Mac") -> "darwin-x86_64"
+    else -> "linux-x86_64"
+}
+val ndkBinDir = File(ndkDir, "toolchains/llvm/prebuilt/$ndkHostTag/bin")
+// NDK ships clang as .cmd wrappers and tools as .exe on Windows hosts.
+val ndkScriptExt = if (isWindowsHost) ".cmd" else ""
+val ndkExeExt = if (isWindowsHost) ".exe" else ""
+val rustupCargo = File(System.getProperty("user.home"), ".cargo/bin/cargo$ndkExeExt")
 
 data class AbiSpec(val abi: String, val triple: String, val clang: String)
 
@@ -61,10 +70,10 @@ val cargoAndroidBuildTasks = androidAbis.associate { spec ->
             rustProject.resolve("Cargo.toml").absolutePath,
         )
         environment(
-            "PATH" to File(System.getProperty("user.home"), ".cargo/bin").absolutePath + ":" + (System.getenv("PATH") ?: ""),
-            "CARGO_TARGET_${targetEnv}_LINKER" to File(ndkBinDir, spec.clang).absolutePath,
-            "CC_${spec.triple.replace('-', '_')}" to File(ndkBinDir, spec.clang).absolutePath,
-            "AR_${spec.triple.replace('-', '_')}" to File(ndkBinDir, "llvm-ar").absolutePath,
+            "PATH" to File(System.getProperty("user.home"), ".cargo/bin").absolutePath + File.pathSeparator + (System.getenv("PATH") ?: ""),
+            "CARGO_TARGET_${targetEnv}_LINKER" to File(ndkBinDir, spec.clang + ndkScriptExt).absolutePath,
+            "CC_${spec.triple.replace('-', '_')}" to File(ndkBinDir, spec.clang + ndkScriptExt).absolutePath,
+            "AR_${spec.triple.replace('-', '_')}" to File(ndkBinDir, "llvm-ar$ndkExeExt").absolutePath,
         )
         inputs.dir(rustProject.resolve("src"))
         inputs.file(rustProject.resolve("Cargo.toml"))
