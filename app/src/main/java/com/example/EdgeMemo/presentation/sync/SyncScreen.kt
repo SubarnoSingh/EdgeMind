@@ -1,10 +1,7 @@
 package com.example.EdgeMemo.presentation.sync
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -15,34 +12,35 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.EdgeMemo.presentation.components.EdgeCard
-import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
-import com.example.EdgeMemo.presentation.components.EdgeEmptyState
+import com.example.EdgeMemo.core.sync.SyncSummary
+import com.example.EdgeMemo.domain.conflict.ConflictResolutionState
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
 import com.example.EdgeMemo.presentation.components.EdgeUiTags
-import com.example.EdgeMemo.presentation.components.StatusChip
+import com.example.EdgeMemo.presentation.components.PillButton
+import com.example.EdgeMemo.presentation.components.SectionHeader
 import com.example.EdgeMemo.presentation.components.StatusDot
-import com.example.EdgeMemo.presentation.components.TechLabel
-import com.example.EdgeMemo.presentation.components.TonalPill
-import com.example.EdgeMemo.presentation.components.relativeTimeLabel
+import com.example.EdgeMemo.presentation.conflicts.ConflictSummaryRow
+import com.example.EdgeMemo.presentation.dashboard.Readout
+import com.example.EdgeMemo.presentation.dashboard.ReadoutPanel
+import com.example.EdgeMemo.presentation.dashboard.RecordRow
+import com.example.EdgeMemo.presentation.dashboard.plural
+import com.example.EdgeMemo.presentation.machines.AssetModel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
 
 /**
- * Sync / Activity destination. Shows the durable synchronization picture
- * (Qdrant operation-store state, conflicts, recent local activity) plus
- * navigation into the Phase 4 conflict resolution workflow. The full activity
- * event timeline remains deferred to a later phase and is stated honestly.
+ * Sync destination: what is queued, what made it, what failed, and what
+ * happens next — all read from the durable operation store. Conflicts open
+ * the resolution workflow.
  */
 @Composable
 fun SyncScreen(
@@ -58,21 +56,18 @@ fun SyncScreen(
             .testTag("edge-sync-screen")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+        verticalArrangement = Arrangement.spacedBy(EdgeLayout.sectionGap),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TechLabel(text = "Synchronization")
-            Spacer(Modifier.weight(1f))
-            TonalPill(
-                text = "Sync now",
-                onClick = viewModel::syncNow,
-                modifier = Modifier.testTag("edge-sync-now"),
-            )
-        }
         when (val s = state) {
-            LoadableState.Loading -> EdgeLoadingState("Reading sync state…")
+            LoadableState.Loading -> EdgeLoadingState("Reading sync status…")
             is LoadableState.Failed -> EdgeErrorState(s.message, onRetry = viewModel::refresh)
-            is LoadableState.Ready -> SyncContent(s.value, isOnline, nowMillis(), onOpenConflict = viewModel::openConflict)
+            is LoadableState.Ready -> SyncContent(
+                data = s.value,
+                isOnline = isOnline,
+                nowMillis = nowMillis(),
+                onSyncNow = viewModel::syncNow,
+                onOpenConflict = viewModel::openConflict,
+            )
         }
     }
 }
@@ -82,128 +77,155 @@ private fun SyncContent(
     data: SyncData,
     isOnline: Boolean,
     nowMillis: Long,
+    onSyncNow: () -> Unit,
     onOpenConflict: (String) -> Unit,
 ) {
     val summary = data.summary
-    val status = when {
-        summary.syncing > 0 -> EdgeStatus.SYNCING to "syncing"
-        summary.failed > 0 -> EdgeStatus.CRITICAL to "needs attention"
-        summary.pending > 0 && !isOnline -> EdgeStatus.OFFLINE to "queued · offline"
-        summary.pending > 0 -> EdgeStatus.WARNING to "pending"
-        summary.synced > 0 -> EdgeStatus.SYNCED to "synced"
-        else -> EdgeStatus.NEUTRAL to "idle"
-    }
-    EdgeCard {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
-        ) {
+    val readout = syncHeadline(summary, isOnline)
+
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusDot(
-                status = status.first,
-                label = status.second,
+                status = readout.status,
+                label = readout.label,
                 modifier = Modifier.testTag(EdgeUiTags.SYNC_BADGE),
             )
-            Spacer(Modifier.weight(1f))
-            StatusChip(
-                text = if (isOnline) "ONLINE" else "OFFLINE",
-                color = if (isOnline) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    statusStyleColorOffline()
-                },
-                showDot = false,
+            Text(
+                text = readout.headline,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = readout.next,
+                style = EdgeType.body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.padding(vertical = 4.dp))
-        Text(
-            text = "Pending ${summary.pending} · in flight ${summary.syncing} · " +
-                "synced ${summary.synced} · failed ${summary.failed} · " +
-                "local-only ${summary.localOnly}",
-            style = EdgeType.numeric,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        ReadoutPanel(
+            listOf(
+                Readout(
+                    value = summary.pending.toString(),
+                    label = "Queued",
+                    status = if (summary.pending > 0) EdgeStatus.WARNING else null,
+                ),
+                Readout(
+                    value = summary.synced.toString(),
+                    label = "Synced",
+                    status = if (summary.synced > 0) EdgeStatus.SYNCED else null,
+                ),
+                Readout(
+                    value = summary.failed.toString(),
+                    label = "Failed",
+                    status = if (summary.failed > 0) EdgeStatus.CRITICAL else null,
+                ),
+                Readout(
+                    value = summary.localOnly.toString(),
+                    label = "Local only",
+                ),
+            ),
         )
-        Text(
-            text = "Counts read directly from durable operation state. " +
-                "Nothing here is simulated; queued work is never labeled synced.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        PillButton(
+            text = "Sync now",
+            onClick = onSyncNow,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("edge-sync-now"),
         )
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-        TechLabel(text = "Conflicts")
-        if (data.conflicts.isEmpty()) {
-            EdgeCardSecondary {
-                Text(
-                    text = "No unresolved conflicts in local memory.",
-                    style = EdgeType.metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    val open = data.conflicts.filter { it.state == ConflictResolutionState.UNRESOLVED }
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(
+            title = "Conflicts",
+            subtitle = if (open.isEmpty()) null else "Pick which version to keep for each record.",
+        )
+        if (open.isEmpty()) {
+            Text(
+                text = "No conflicts to review.",
+                style = EdgeType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         } else {
-            data.conflicts.forEach { conflict ->
-                EdgeCardSecondary(
+            EdgeListGroup(open) { conflict ->
+                ConflictSummaryRow(
+                    conflict = conflict,
+                    namespace = conflict.subjectKey.takeIf { it.isNotBlank() }
+                        ?.let { AssetModel.namespaceOf(it) } ?: "unscoped",
+                    nowMillis = nowMillis,
+                    onClick = { onOpenConflict(conflict.conflictId) },
                     modifier = Modifier
                         .testTag("edge-sync-conflict-${conflict.conflictId}")
                         .semantics {
                             contentDescription = "Conflict ${conflict.subjectKey}: open resolution workflow"
-                        }
-                        .clickable { onOpenConflict(conflict.conflictId) },
-                ) {
-                    Text(
-                        text = conflict.subjectKey.ifBlank { conflict.conflictId.take(8) },
-                        style = EdgeType.bodyEmphasis,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "local v${conflict.localVersion ?: "?"} vs cloud " +
-                            "v${conflict.incomingVersion ?: "?"} · ${conflict.reason}",
-                        style = EdgeType.metadata,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                        },
+                )
             }
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-        TechLabel(text = "Recent local activity")
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(title = "Recent activity")
         if (data.recentRecords.isEmpty()) {
-            EdgeEmptyState(
-                title = "No local activity yet",
-                message = "Captured notes and ingested documents appear here.",
+            Text(
+                text = "Nothing yet. Records you add or import show up here with their sync state.",
+                style = EdgeType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            data.recentRecords.forEach { record ->
-                EdgeCardSecondary {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = record.title.ifBlank { record.memoryId.take(8) },
-                            style = EdgeType.body,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = relativeTimeLabel(record.updatedAt, nowMillis),
-                            style = EdgeType.numeric,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        text = record.type.name.lowercase() + " · " + record.source,
-                        style = EdgeType.metadata,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            EdgeListGroup(data.recentRecords) { record ->
+                RecordRow(record = record, nowMillis = nowMillis)
             }
         }
     }
 }
 
-@Composable
-private fun statusStyleColorOffline(): androidx.compose.ui.graphics.Color =
-    com.example.EdgeMemo.ui.theme.statusStyleFor(EdgeStatus.OFFLINE).color
+private data class SyncHeadline(
+    val status: EdgeStatus,
+    val label: String,
+    val headline: String,
+    val next: String,
+)
+
+/** One plain statement of the queue and what happens next. */
+private fun syncHeadline(s: SyncSummary, isOnline: Boolean): SyncHeadline {
+    fun records(n: Long) = plural(n.toInt(), "record", "records")
+    fun isAre(n: Long) = if (n == 1L) "is" else "are"
+    return when {
+        s.syncing > 0 -> SyncHeadline(
+            EdgeStatus.SYNCING,
+            "Uploading",
+            "Uploading ${records(s.syncing)}.",
+            if (s.pending > 0) "${s.pending} more ${isAre(s.pending)} queued behind them." else "You can keep working while this runs.",
+        )
+        s.failed > 0 -> SyncHeadline(
+            EdgeStatus.CRITICAL,
+            "Upload failed",
+            "${records(s.failed)} didn't upload.",
+            if (isOnline) "Sync now tries them again." else "Sync now tries them again once this device is back online.",
+        )
+        s.pending > 0 && !isOnline -> SyncHeadline(
+            EdgeStatus.OFFLINE,
+            "Waiting for a connection",
+            "${records(s.pending)} ${isAre(s.pending)} queued.",
+            "They'll upload when this device is back online.",
+        )
+        s.pending > 0 -> SyncHeadline(
+            EdgeStatus.WARNING,
+            "Queued",
+            "${records(s.pending)} ${isAre(s.pending)} queued.",
+            "They upload in the background. Sync now starts it right away.",
+        )
+        s.synced > 0 -> SyncHeadline(
+            EdgeStatus.SYNCED,
+            "Up to date",
+            "Everything marked for sync has uploaded.",
+            "New records you mark for sync will queue here.",
+        )
+        else -> SyncHeadline(
+            EdgeStatus.NEUTRAL,
+            "Idle",
+            "Nothing is queued.",
+            "Records you mark for sync will queue here and upload when there's a connection.",
+        )
+    }
+}

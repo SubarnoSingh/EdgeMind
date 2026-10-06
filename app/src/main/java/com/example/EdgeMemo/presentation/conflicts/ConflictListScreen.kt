@@ -2,11 +2,8 @@ package com.example.EdgeMemo.presentation.conflicts
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,19 +21,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.example.EdgeMemo.domain.conflict.Conflict
-import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
 import com.example.EdgeMemo.presentation.components.EdgeEmptyState
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
 import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
 import com.example.EdgeMemo.presentation.components.relativeTimeLabel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
-import com.example.EdgeMemo.ui.theme.statusColor
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 
 /** Test tags for UI Phase 4 conflict screens. */
 object ConflictUiTags {
@@ -52,20 +49,22 @@ object ConflictUiTags {
     const val OUTCOME = "edge-conflict-outcome"
     const val ERROR = "edge-conflict-error"
     const val ERROR_RETRY = "edge-conflict-error-retry"
-    const val BACK = "edge-conflict-back"
+
+    /** The shell's Back control; conflict screens no longer draw their own. */
+    const val BACK = "edge-shell-back"
     const val LOCAL_PANEL = "edge-conflict-local-panel"
     const val CLOUD_PANEL = "edge-conflict-cloud-panel"
 }
 
 /**
  * Unresolved-conflict workspace. Lists ONLY real conflicts from the durable
- * conflict store, with the fields the domain actually carries. Tapping opens
- * the evidence comparison + resolution workflow.
+ * conflict store. Tapping opens the evidence comparison + resolution workflow.
+ * The shell draws Back; [onBack] stays for callers.
  */
 @Composable
 fun ConflictListScreen(
     viewModel: ConflictListViewModel,
-    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     modifier: Modifier = Modifier,
     nowMillis: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -80,42 +79,48 @@ fun ConflictListScreen(
             .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
         verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "\u2190 Back",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .testTag(ConflictUiTags.BACK)
-                    .semantics { contentDescription = "Back" }
-                    .clickable(onClick = onBack)
-                    .padding(EdgeLayout.compactGap),
-            )
-            Spacer(Modifier.weight(1f))
-            TechLabel(text = "Conflict Workspace")
-        }
-
+        Text(
+            text = "Conflicts",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         when (val s = state) {
-            LoadableState.Loading -> EdgeLoadingState("Reading conflict evidence\u2026")
+            LoadableState.Loading -> EdgeLoadingState("Reading conflicts…")
             is LoadableState.Failed -> EdgeErrorState(s.message, onRetry = viewModel::refresh)
             is LoadableState.Ready -> {
                 val data = s.value
                 if (data.rows.isEmpty()) {
                     EdgeEmptyState(
                         title = "No unresolved conflicts",
-                        message = "Local and synchronized knowledge is consistent right now. " +
-                            "New divergences appear here automatically.",
+                        message = "When a cloud update disagrees with a record on this device, " +
+                            "it shows up here for you to decide.",
                     )
                 } else {
-                    TechLabel(
-                        text = "UNRESOLVED CONFLICTS \u00B7 ${data.unresolvedCount}",
-                        color = EdgeStatus.WARNING.statusColor(),
+                    Text(
+                        text = if (data.unresolvedCount == 1L) {
+                            "1 record has two versions. Pick which one to keep."
+                        } else {
+                            "${data.unresolvedCount} records have two versions. Pick which one to keep for each."
+                        },
+                        style = EdgeType.body,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
-                    data.rows.forEach { row ->
-                        ConflictRowCard(
-                            row = row,
-                            nowMillis = nowMillis(),
-                            onOpen = { viewModel.openConflict(row.conflict.conflictId) },
+                    val now = nowMillis()
+                    EdgeListGroup(data.rows) { row ->
+                        val conflict = row.conflict
+                        ConflictSummaryRow(
+                            conflict = conflict,
+                            namespace = row.assetNamespace,
+                            nowMillis = now,
+                            onClick = { viewModel.openConflict(conflict.conflictId) },
+                            modifier = Modifier
+                                .testTag("${ConflictUiTags.ROW_PREFIX}${conflict.conflictId}")
+                                .semantics {
+                                    contentDescription = "Conflict on ${row.assetNamespace}: " +
+                                        "device version ${conflict.localVersion ?: "unknown"}, cloud version " +
+                                        "${conflict.incomingVersion ?: "unknown"}. Open to compare and resolve."
+                                },
                         )
                     }
                 }
@@ -124,84 +129,71 @@ fun ConflictListScreen(
     }
 }
 
+/**
+ * One conflict as a list row: machine tag and age, the record's title, and
+ * why it conflicts. Shared by the conflict list and the Sync screen.
+ */
 @Composable
-private fun ConflictRowCard(
-    row: ConflictRow,
+internal fun ConflictSummaryRow(
+    conflict: Conflict,
+    namespace: String,
     nowMillis: Long,
-    onOpen: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val conflict = row.conflict
-    EdgeCardSecondary(
-        modifier = Modifier
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .testTag("${ConflictUiTags.ROW_PREFIX}${conflict.conflictId}")
-            .semantics {
-                contentDescription = "Conflict on asset ${row.assetNamespace}: " +
-                    "local version ${conflict.localVersion ?: "unknown"} vs cloud version " +
-                    "${conflict.incomingVersion ?: "unknown"}. Open evidence and resolution."
-            }
-            .clickable(onClick = onOpen),
+            .clickable(onClick = onClick)
+            .padding(horizontal = EdgeLayout.cardPadding, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = row.assetNamespace.uppercase(),
+                text = namespace.uppercase(),
                 style = EdgeType.numeric,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            StatusChip(
-                text = "unresolved",
-                color = EdgeStatus.WARNING.statusColor(),
-                showDot = true,
-            )
             Text(
-                text = " \u203A",
-                style = EdgeType.bodyEmphasis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text(
-            text = conflict.localTitle.ifBlank { "Local record" },
-            style = EdgeType.body,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-            Text(
-                text = "local v${conflict.localVersion ?: "?"} \u00B7 cloud v${conflict.incomingVersion ?: "?"}",
-                style = EdgeType.numeric,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = "detected ${relativeTimeLabel(conflict.detectedAt, nowMillis)}",
+                text = relativeTimeLabel(conflict.detectedAt, nowMillis),
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-            Text(
-                text = conflict.reason,
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            // Real tombstone evidence flags — shown only when true.
-            if (conflict.localTombstone) {
-                StatusChip(
-                    text = "local deleted",
-                    color = EdgeStatus.CRITICAL.statusColor(),
-                    showDot = false,
-                )
-            }
-            if (conflict.incomingTombstone) {
-                StatusChip(
-                    text = "cloud deleted",
-                    color = EdgeStatus.CRITICAL.statusColor(),
-                    showDot = false,
-                )
+        Text(
+            text = conflict.localTitle.ifBlank { conflict.incomingTitle.ifBlank { "Untitled record" } },
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = conflictReasonText(conflict.reason),
+            style = EdgeType.metadata,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Real tombstone evidence flags — shown only when true.
+        if (conflict.localTombstone || conflict.incomingTombstone) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                val critical = statusStyleFor(EdgeStatus.CRITICAL)
+                if (conflict.localTombstone) {
+                    StatusChip("Deleted on this device", color = critical.onContainer, containerColor = critical.container, showDot = false)
+                }
+                if (conflict.incomingTombstone) {
+                    StatusChip("Deleted in the cloud", color = critical.onContainer, containerColor = critical.container, showDot = false)
+                }
             }
         }
     }
+}
+
+/** The stored reason code, said plainly. Unknown codes are shown as stored. */
+internal fun conflictReasonText(reason: String): String = when (reason) {
+    "PULL_CONFLICT" -> "A cloud update differs from the copy on this device."
+    "PUSH_CONFLICT" -> "This device's change and a cloud change collided on upload."
+    else -> reason
 }

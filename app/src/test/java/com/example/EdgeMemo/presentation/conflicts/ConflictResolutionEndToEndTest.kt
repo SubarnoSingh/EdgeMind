@@ -142,14 +142,14 @@ class ConflictResolutionEndToEndTest {
         waitForTag(EdgeUiTags.DASHBOARD)
 
         // Dashboard: the REAL unresolved-conflict metric navigates to the workspace.
-        waitForText("Open conflicts")
+        waitForText("Conflicts")
         compose.onNodeWithTag(EdgeUiTags.OPEN_CONFLICTS).performScrollTo().performClick()
 
         // Workspace lists the conflict with its real id and evidence summary.
         waitForTag("${ConflictUiTags.ROW_PREFIX}$conflictId")
         compose.onNodeWithTag("${ConflictUiTags.ROW_PREFIX}$conflictId")
             .assertIsDisplayed()
-        compose.onNodeWithText("UNRESOLVED CONFLICTS · 1").assertIsDisplayed()
+        compose.onNodeWithText("1 record has two versions. Pick which one to keep.").assertIsDisplayed()
         compose.onNodeWithTag(ConflictUiTags.ROW_PREFIX + conflictId).performClick()
 
         // Detail: both sides show the genuinely stored content.
@@ -158,12 +158,12 @@ class ConflictResolutionEndToEndTest {
         compose.onNodeWithTag(ConflictUiTags.LOCAL_PANEL).assertExists()
         compose.onNodeWithTag(ConflictUiTags.CLOUD_PANEL).assertExists()
         compose.onNodeWithText("P-101 OEM seal advisory").assertExists()
-        compose.onNodeWithText("authority OEM-MANUAL", substring = true).assertExists()
-        compose.onNodeWithText("unresolved", substring = true).assertExists()
+        compose.onNodeWithText("OEM-MANUAL").assertExists()
+        compose.onNodeWithText("Unresolved").assertExists()
 
         // Confirmation step first, then CANCEL — nothing may be written.
         compose.onNodeWithTag(ConflictUiTags.KEEP_LOCAL).performScrollTo().performClick()
-        compose.onNodeWithText("You are keeping the LOCAL version.").assertIsDisplayed()
+        compose.onNodeWithText("Keep this device's version?").assertIsDisplayed()
         compose.onNodeWithTag(ConflictUiTags.CANCEL).performScrollTo().performClick()
         assertEquals(
             ConflictResolutionState.UNRESOLVED,
@@ -174,7 +174,7 @@ class ConflictResolutionEndToEndTest {
         compose.onNodeWithTag(ConflictUiTags.KEEP_LOCAL).performScrollTo().performClick()
         compose.onNodeWithTag(ConflictUiTags.CONFIRM).performScrollTo().performClick()
         waitForTag(ConflictUiTags.OUTCOME)
-        compose.onNodeWithText("Resolved as resolved local", substring = true)
+        compose.onNodeWithText("Kept this device's version.")
             .assertIsDisplayed()
         compose.onNodeWithText("No record content changed", substring = true)
             .performScrollTo().assertIsDisplayed()
@@ -189,7 +189,7 @@ class ConflictResolutionEndToEndTest {
         }
 
         // Back to the workspace: the settled conflict left the unresolved list.
-        compose.onNodeWithTag(ConflictUiTags.BACK).performScrollTo().performClick()
+        compose.onNodeWithTag(ConflictUiTags.BACK).performClick()
         waitForTag(ConflictUiTags.LIST)
         waitForText("No unresolved conflicts")
     }
@@ -213,12 +213,12 @@ class ConflictResolutionEndToEndTest {
 
         waitForTag(ConflictUiTags.DETAIL)
         compose.onNodeWithTag(ConflictUiTags.KEEP_CLOUD).performScrollTo().performClick()
-        compose.onNodeWithText("You are keeping the CLOUD version.").assertIsDisplayed()
+        compose.onNodeWithText("Use the cloud version?").assertIsDisplayed()
         compose.onNodeWithTag(ConflictUiTags.CONFIRM).performScrollTo().performClick()
         waitForTag(ConflictUiTags.OUTCOME)
 
         // The resolver's deterministic follow-up: version max+1, queued sync.
-        waitForText("QUEUED FOR SYNC")
+        waitForText("is queued to sync")
         val resolved = runBlocking { container.listConflicts().first() }
         assertEquals(ConflictResolutionState.RESOLVED_CLOUD, resolved.state)
         val record = runBlocking { container.memoryRepository.get(memoryId) }!!

@@ -1,13 +1,15 @@
 package com.example.EdgeMemo.presentation.conflicts
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,9 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.EdgeMemo.core.model.Memory
+import com.example.EdgeMemo.core.model.MemorySyncState
 import com.example.EdgeMemo.domain.conflict.Conflict
 import com.example.EdgeMemo.domain.conflict.ConflictResolutionAction
 import com.example.EdgeMemo.domain.conflict.ConflictResolutionState
@@ -33,29 +34,32 @@ import com.example.EdgeMemo.presentation.components.EdgeErrorState
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
 import com.example.EdgeMemo.presentation.components.MarkdownBody
 import com.example.EdgeMemo.presentation.components.PillButton
+import com.example.EdgeMemo.presentation.components.SectionHeader
 import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
+import com.example.EdgeMemo.presentation.components.StatusDot
 import com.example.EdgeMemo.presentation.components.TonalPill
 import com.example.EdgeMemo.presentation.components.relativeTimeLabel
+import com.example.EdgeMemo.presentation.dashboard.TextAction
+import com.example.EdgeMemo.presentation.machines.AssetModel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
-import com.example.EdgeMemo.ui.theme.statusColor
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 
 /**
  * Conflict evidence comparison + human-controlled resolution workflow.
  *
- * Wording mirrors ONLY the real 12B.10 resolver semantics (keep-local leaves
- * the record untouched; keep-cloud applies the incoming content at the
- * resolver's deterministic next version and may queue a follow-up sync
- * operation; dismiss keeps both sides). No AI decides anything; no state is
- * claimed that the domain did not return.
+ * Wording mirrors ONLY the real resolver semantics (keep-local leaves the
+ * record untouched; keep-cloud applies the incoming content at the resolver's
+ * next version and may queue a follow-up sync operation; dismiss keeps both
+ * sides). No AI decides anything; no state is claimed that the domain did
+ * not return. The shell draws Back; [onBack] stays for callers.
  */
 @Composable
 fun ConflictDetailScreen(
     viewModel: ConflictDetailViewModel,
-    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     modifier: Modifier = Modifier,
     nowMillis: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -66,24 +70,10 @@ fun ConflictDetailScreen(
             .testTag(ConflictUiTags.DETAIL)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+        verticalArrangement = Arrangement.spacedBy(EdgeLayout.sectionGap),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "\u2190 Back",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .testTag(ConflictUiTags.BACK)
-                    .semantics { contentDescription = "Back to conflicts" }
-                    .clickable(onClick = onBack)
-                    .padding(EdgeLayout.compactGap),
-            )
-            Spacer(Modifier.weight(1f))
-            TechLabel(text = "Conflict")
-        }
         when (val s = state) {
-            LoadableState.Loading -> EdgeLoadingState("Reading conflict evidence\u2026")
+            LoadableState.Loading -> EdgeLoadingState("Reading conflict…")
             is LoadableState.Failed -> EdgeErrorState(s.message, onRetry = viewModel::retry)
             is LoadableState.Ready -> ConflictDetailContent(
                 data = s.value,
@@ -102,83 +92,61 @@ private fun ConflictDetailContent(
 ) {
     val conflict = data.conflict
 
-    // ── Header: identity + authoritative status ──────────────────────────
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
+    // ── Subject: the machine tag, state and why ──────────────────────────
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val tag = conflict.subjectKey.takeIf { it.isNotBlank() }?.let { AssetModel.namespaceOf(it) }
         Text(
-            text = conflict.subjectKey.ifBlank { "subject \u00B7 ${conflict.conflictId.take(8)}" },
-            style = EdgeType.screenTitle,
+            text = tag?.uppercase() ?: "Conflict",
+            style = EdgeType.nameplate,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-            StatusChip(
-                text = conflict.state.name.lowercase().replace('_', ' '),
-                color = when (conflict.state) {
-                    ConflictResolutionState.UNRESOLVED -> EdgeStatus.WARNING.statusColor()
-                    else -> EdgeStatus.HEALTHY.statusColor()
-                },
-                showDot = true,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val status = if (data.isUnresolved) EdgeStatus.WARNING else EdgeStatus.HEALTHY
+            StatusDot(status = status, label = stateLabel(conflict.state))
             Text(
-                text = "detected ${relativeTimeLabel(conflict.detectedAt, nowMillis)}",
+                text = "Detected ${relativeTimeLabel(conflict.detectedAt, nowMillis)}",
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = EdgeLayout.compactGap),
             )
         }
-    }
-
-    // ── Reason / divergence summary (real fields only) ───────────────────
-    EdgeCardSecondary {
-        TechLabel(text = "WHY IT CONFLICTS")
         Text(
-            text = "Reason: ${conflict.reason}",
+            text = conflictReasonText(conflict.reason) +
+                if (data.isUnresolved) " Nothing is merged until you choose." else "",
             style = EdgeType.body,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Text(
-            text = "local v${conflict.localVersion ?: "?"} \u00B7 hash ${conflict.localContentHash?.take(12) ?: "\u2014"}  |  " +
-                "cloud v${conflict.incomingVersion ?: "?"} \u00B7 hash ${conflict.incomingContentHash.take(12)}",
-            style = EdgeType.numeric,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "Both sides are different knowledge at the same point in history. " +
-                "Nothing is merged automatically; the record's versions are decided " +
-                "by the deterministic conflict resolver.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 
-    // ── Evidence panels ──────────────────────────────────────────────────
-    EvidencePanel(
-        title = "LOCAL RECORD",
-        asset = conflict.subjectKey,
-        recordId = conflict.localMemoryId,
-        version = conflict.localVersion,
-        origin = conflict.localOrigin,
-        authority = conflict.localAuthority,
-        contentHash = conflict.localContentHash,
-        title1 = conflict.localTitle,
-        content = conflict.localContent,
-        tombstoned = conflict.localTombstone,
-        status = EdgeStatus.NEUTRAL,
-        modifier = Modifier.testTag(ConflictUiTags.LOCAL_PANEL),
-    )
-    EvidencePanel(
-        title = "CLOUD RECORD",
-        asset = conflict.subjectKey,
-        recordId = conflict.incomingMemoryId,
-        version = conflict.incomingVersion,
-        origin = conflict.incomingOrigin,
-        authority = conflict.incomingAuthority,
-        contentHash = conflict.incomingContentHash,
-        title1 = conflict.incomingTitle,
-        content = conflict.incomingContent,
-        tombstoned = conflict.incomingTombstone,
-        status = EdgeStatus.SYNCING,
-        modifier = Modifier.testTag(ConflictUiTags.CLOUD_PANEL),
-    )
+    // ── Evidence: the two versions, same layout so they compare line by line ──
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(title = "Compare versions")
+        EvidencePanel(
+            side = "On this device",
+            sideStatus = EdgeStatus.NEUTRAL,
+            recordId = conflict.localMemoryId,
+            version = conflict.localVersion,
+            origin = conflict.localOrigin,
+            authority = conflict.localAuthority,
+            contentHash = conflict.localContentHash,
+            title = conflict.localTitle,
+            content = conflict.localContent,
+            tombstoned = conflict.localTombstone,
+            modifier = Modifier.testTag(ConflictUiTags.LOCAL_PANEL),
+        )
+        EvidencePanel(
+            side = "From the cloud",
+            sideStatus = EdgeStatus.SYNCING,
+            recordId = conflict.incomingMemoryId,
+            version = conflict.incomingVersion,
+            origin = conflict.incomingOrigin,
+            authority = conflict.incomingAuthority,
+            contentHash = conflict.incomingContentHash,
+            title = conflict.incomingTitle,
+            content = conflict.incomingContent,
+            tombstoned = conflict.incomingTombstone,
+            modifier = Modifier.testTag(ConflictUiTags.CLOUD_PANEL),
+        )
+    }
 
     // ── Resolution lifecycle ─────────────────────────────────────────────
     when (val resolution = data.resolution) {
@@ -196,7 +164,6 @@ private fun ConflictDetailContent(
 
         is ResolutionUi.Confirming -> Confirmation(
             action = resolution.action,
-            conflict = conflict,
             onConfirm = viewModel::confirmResolution,
             onCancel = viewModel::cancelResolution,
         )
@@ -208,10 +175,10 @@ private fun ConflictDetailContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
         ) {
-            CircularProgressIndicator(modifier = Modifier.padding(8.dp), strokeWidth = 2.dp)
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             Text(
-                text = "Applying your decision to the conflict store\u2026",
-                style = EdgeType.metadata,
+                text = "Saving your decision…",
+                style = EdgeType.body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -228,66 +195,78 @@ private fun ConflictDetailContent(
 
 @Composable
 private fun EvidencePanel(
-    title: String,
-    asset: String,
+    side: String,
+    sideStatus: EdgeStatus,
     recordId: String?,
     version: Int?,
     origin: String,
     authority: String?,
     contentHash: String?,
-    title1: String,
+    title: String,
     content: String,
     tombstoned: Boolean,
-    status: EdgeStatus,
     modifier: Modifier = Modifier,
 ) {
     EdgeCard(modifier = modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TechLabel(text = title, color = status.statusColor())
-            Spacer(Modifier.weight(1f))
-            // Real tombstone evidence — never rendered as merely "older".
-            if (tombstoned) {
-                StatusChip(
-                    text = "deleted on this side",
-                    color = EdgeStatus.CRITICAL.statusColor(),
-                    showDot = false,
-                )
-            }
+            StatusDot(status = sideStatus, label = side, modifier = Modifier.weight(1f))
+            Text(
+                text = version?.let { "Version $it" } ?: "Version unknown",
+                style = EdgeType.numeric,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        // Real tombstone evidence — never rendered as merely "older".
+        if (tombstoned) {
+            val critical = statusStyleFor(EdgeStatus.CRITICAL)
+            StatusChip(
+                text = "Deleted on this side",
+                color = critical.onContainer,
+                containerColor = critical.container,
+                showDot = false,
+            )
+            Spacer(Modifier.height(8.dp))
         }
         Text(
-            text = title1.ifBlank { "(no title recorded on this side)" },
-            style = EdgeType.bodyEmphasis,
+            text = title.ifBlank { "No title on this side" },
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Text(
-            text = buildList {
-                version?.let { add("v$it") }
-                add("origin ${origin.lowercase()}")
-                authority?.takeIf { it.isNotBlank() }?.let { add("authority $it") }
-                contentHash?.takeIf { it.isNotEmpty() }?.let { add("hash ${it.take(12)}") }
-            }.joinToString(" \u00B7 "),
-            style = EdgeType.numeric,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Spacer(Modifier.height(4.dp))
         if (content.isNotBlank()) {
-            Spacer(Modifier.padding(vertical = 2.dp))
             MarkdownBody(content)
         } else if (!tombstoned) {
             Text(
-                text = "(this side carries no text evidence)",
+                text = "No text on this side.",
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        recordId?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                text = "record ${it.take(8)}",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Spacer(Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Fact("Source", origin.lowercase().replaceFirstChar { it.uppercase() })
+            authority?.takeIf { it.isNotBlank() }?.let { Fact("Authority", it) }
+            recordId?.takeIf { it.isNotBlank() }?.let { Fact("Record", it.take(8), raw = true) }
+            contentHash?.takeIf { it.isNotEmpty() }?.let { Fact("Content hash", it.take(12), raw = true) }
         }
+    }
+}
+
+@Composable
+private fun Fact(label: String, value: String, raw: Boolean = false) {
+    Row {
+        Text(
+            text = label,
+            style = EdgeType.metadata,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(104.dp),
+        )
+        Text(
+            text = value,
+            style = if (raw) EdgeType.code else EdgeType.metadata,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -297,102 +276,82 @@ private fun ResolutionActions(
     onKeepCloud: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    EdgeCardSecondary {
-        TechLabel(text = "RESOLUTION \u00B7 EXPLICIT HUMAN DECISION")
-        Text(
-            text = "Choose what wins. Each option asks for confirmation first; nothing " +
-                "changes until you confirm.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(
+            title = "Which version should stay?",
+            subtitle = "You'll confirm before anything changes.",
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-            TonalPill(
-                text = "Keep Local",
-                onClick = onKeepLocal,
-                modifier = Modifier.testTag(ConflictUiTags.KEEP_LOCAL),
-            )
-            TonalPill(
-                text = "Keep Cloud",
-                onClick = onKeepCloud,
-                modifier = Modifier.testTag(ConflictUiTags.KEEP_CLOUD),
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = "Dismiss",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .testTag(ConflictUiTags.DISMISS)
-                    .semantics { contentDescription = "Dismiss this conflict, keeping both sides" }
-                    .clickable(onClick = onDismiss)
-                    .padding(EdgeLayout.compactGap),
-            )
-        }
+        TonalPill(
+            text = "Keep this device's version",
+            onClick = onKeepLocal,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(ConflictUiTags.KEEP_LOCAL),
+        )
+        TonalPill(
+            text = "Use the cloud version",
+            onClick = onKeepCloud,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(ConflictUiTags.KEEP_CLOUD),
+        )
+        TextAction(
+            text = "Dismiss and keep both as they are",
+            onClick = onDismiss,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(ConflictUiTags.DISMISS)
+                .semantics { contentDescription = "Dismiss this conflict, keeping both sides" },
+        )
     }
 }
 
 @Composable
 private fun Confirmation(
     action: ConflictResolutionAction,
-    conflict: Conflict,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val semantics = when (action) {
+    val (question, effect, confirmLabel) = when (action) {
         ConflictResolutionAction.KEEP_LOCAL -> Triple(
-            "Keep the LOCAL version",
-            "The local record stays exactly as it is and this conflict closes. The cloud " +
-                "version is no longer applied for this divergence. No synchronization " +
-                "operation is produced.",
-            "You are keeping the LOCAL version.",
+            "Keep this device's version?",
+            "The record on this device stays exactly as it is and the cloud version is set aside. " +
+                "Nothing new is queued to sync.",
+            "Keep device version",
         )
         ConflictResolutionAction.KEEP_CLOUD -> Triple(
-            "Keep the CLOUD version",
-            "The cloud content becomes the active local record at the resolver's " +
-                "deterministic next version (max of the evidence versions + 1). The local " +
-                "record's history and this evidence are preserved. The change is queued as " +
-                "a follow-up sync operation when policy allows.",
-            "You are keeping the CLOUD version.",
+            "Use the cloud version?",
+            "The cloud text becomes the current record on this device, saved as a new version. " +
+                "This device's text stays in the record's history. The change is queued to sync " +
+                "if the record's sync setting allows it.",
+            "Use cloud version",
         )
         ConflictResolutionAction.DISMISS -> Triple(
-            "Dismiss this conflict",
-            "Both sides stay as they are. The conflict is marked reviewed with no change to " +
-                "either record's content.",
-            "Both sides will be kept as they are.",
+            "Dismiss this conflict?",
+            "Both versions stay as they are and the conflict is marked as reviewed.",
+            "Dismiss conflict",
         )
     }
     EdgeCard {
-        TechLabel(text = "CONFIRM RESOLUTION", color = EdgeStatus.WARNING.statusColor())
-        Text(
-            text = semantics.first,
-            style = EdgeType.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = semantics.third,
-            style = EdgeType.body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = semantics.second,
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
+        Text(question, style = EdgeType.sectionTitle, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(6.dp))
+        Text(effect, style = EdgeType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
             TonalPill(
                 text = "Cancel",
                 onClick = onCancel,
-                modifier = Modifier.testTag(ConflictUiTags.CANCEL),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(ConflictUiTags.CANCEL),
             )
-            Spacer(Modifier.weight(1f))
             PillButton(
-                text = when (action) {
-                    ConflictResolutionAction.KEEP_LOCAL -> "Confirm Keep Local"
-                    ConflictResolutionAction.KEEP_CLOUD -> "Confirm Keep Cloud"
-                    ConflictResolutionAction.DISMISS -> "Confirm Dismiss"
-                },
+                text = confirmLabel,
                 onClick = onConfirm,
-                modifier = Modifier.testTag(ConflictUiTags.CONFIRM),
+                modifier = Modifier
+                    .weight(1.4f)
+                    .testTag(ConflictUiTags.CONFIRM),
             )
         }
     }
@@ -401,37 +360,24 @@ private fun Confirmation(
 @Composable
 private fun ResolutionOutcome(resolution: ResolutionUi.Resolved, nowMillis: Long) {
     val conflict = resolution.conflict
-    EdgeCard(
-        modifier = Modifier.testTag(ConflictUiTags.OUTCOME),
-    ) {
-        TechLabel(
-            text = "DOMAIN RESULT",
-            color = EdgeStatus.HEALTHY.statusColor(),
-        )
+    EdgeCard(modifier = Modifier.testTag(ConflictUiTags.OUTCOME)) {
         Text(
             text = if (resolution.wasAlreadyResolved) {
-                "This conflict had already been resolved; the durable outcome is shown " +
-                    "below \u2014 nothing new was written."
+                "This conflict was already resolved, so nothing new was saved."
             } else {
-                "Resolved as ${conflict.state.name.lowercase().replace('_', ' ')} " +
-                    "by the conflict resolver."
+                outcomeSentence(conflict.state)
             },
-            style = EdgeType.body,
+            style = EdgeType.sectionTitle,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        conflict.resolution?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                text = it,
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Spacer(Modifier.height(6.dp))
         // Truthful sync state, read back from the real record after resolution.
         OutcomeSyncLine(resolution)
         conflict.resolvedAt?.let {
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = "resolved ${relativeTimeLabel(it, nowMillis)}",
-                style = EdgeType.numeric,
+                text = "Resolved ${relativeTimeLabel(it, nowMillis)}",
+                style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -440,52 +386,64 @@ private fun ResolutionOutcome(resolution: ResolutionUi.Resolved, nowMillis: Long
 
 @Composable
 private fun OutcomeSyncLine(resolution: ResolutionUi.Resolved) {
-    when (resolution.action) {
-        ConflictResolutionAction.KEEP_CLOUD -> {
-            val record = resolution.localRecord
-            val status: Pair<EdgeStatus, String> = when {
-                record == null -> EdgeStatus.NEUTRAL to "the resolved record is not active local memory (deleted or tombstoned)"
-                record.syncState == com.example.EdgeMemo.core.model.MemorySyncState.PENDING ->
-                    EdgeStatus.WARNING to "local record v${record.version} is QUEUED FOR SYNC \u2014 it reaches the cloud when a connection is available"
-                record.syncState == com.example.EdgeMemo.core.model.MemorySyncState.SYNCED ->
-                    EdgeStatus.SYNCED to "local record v${record.version} is already synced"
-                record.syncState == com.example.EdgeMemo.core.model.MemorySyncState.FAILED ->
-                    EdgeStatus.CRITICAL to "local record sync FAILED \u2014 see Sync"
-                else -> EdgeStatus.NEUTRAL to "local record v${record.version} is local-only under current policy"
-            }
-            StatusChip(
-                text = status.second,
-                color = status.first.statusColor(),
-                showDot = true,
-            )
-        }
-        else -> Text(
-            text = "No record content changed and no synchronization operation was produced.",
-            style = EdgeType.metadata,
+    if (resolution.action != ConflictResolutionAction.KEEP_CLOUD) {
+        Text(
+            text = "No record content changed and nothing was queued to sync.",
+            style = EdgeType.body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        return
+    }
+    val record = resolution.localRecord
+    val (status, text) = when {
+        record == null -> EdgeStatus.NEUTRAL to
+            "The resolved record isn't in active memory any more (it was deleted)."
+        record.syncState == MemorySyncState.PENDING -> EdgeStatus.WARNING to
+            "Version ${record.version} is queued to sync. It uploads when there's a connection."
+        record.syncState == MemorySyncState.SYNCED -> EdgeStatus.SYNCED to
+            "Version ${record.version} is already synced."
+        record.syncState == MemorySyncState.FAILED -> EdgeStatus.CRITICAL to
+            "Version ${record.version} failed to sync. Check the Sync tab."
+        else -> EdgeStatus.NEUTRAL to
+            "Version ${record.version} stays on this device only, per its sync setting."
+    }
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StatusDot(status = status, label = "", modifier = Modifier.padding(top = 8.dp))
+        Text(text, style = EdgeType.body, color = statusStyleFor(status).onContainer)
     }
 }
 
 @Composable
 private fun SettledBanner(conflict: Conflict, nowMillis: Long) {
     EdgeCardSecondary {
-        TechLabel(
-            text = "SETTLED \u00B7 ${conflict.state.name.lowercase().replace('_', ' ')}",
-            color = EdgeStatus.HEALTHY.statusColor(),
-        )
         Text(
-            text = conflict.resolution?.takeIf { it.isNotBlank() }
-                ?: "This conflict is already resolved. Nothing left to do.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = outcomeSentence(conflict.state),
+            style = EdgeType.sectionTitle,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         conflict.resolvedAt?.let {
             Text(
-                text = "resolved ${relativeTimeLabel(it, nowMillis)}",
-                style = EdgeType.numeric,
+                text = "Resolved ${relativeTimeLabel(it, nowMillis)}",
+                style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+private fun stateLabel(state: ConflictResolutionState): String = when (state) {
+    ConflictResolutionState.UNRESOLVED -> "Unresolved"
+    ConflictResolutionState.RESOLVED_LOCAL -> "Resolved"
+    ConflictResolutionState.RESOLVED_CLOUD -> "Resolved"
+    ConflictResolutionState.RESOLVED_MERGED -> "Resolved"
+    ConflictResolutionState.DISMISSED -> "Dismissed"
+}
+
+/** What the domain says happened, from the conflict's stored state. */
+private fun outcomeSentence(state: ConflictResolutionState): String = when (state) {
+    ConflictResolutionState.RESOLVED_LOCAL -> "Kept this device's version."
+    ConflictResolutionState.RESOLVED_CLOUD -> "Now using the cloud version."
+    ConflictResolutionState.RESOLVED_MERGED -> "Resolved with a merged version."
+    ConflictResolutionState.DISMISSED -> "Dismissed. Both versions were kept."
+    ConflictResolutionState.UNRESOLVED -> "Still unresolved."
 }

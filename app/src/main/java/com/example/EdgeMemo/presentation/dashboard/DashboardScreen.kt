@@ -1,13 +1,23 @@
 package com.example.EdgeMemo.presentation.dashboard
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,6 +26,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -23,24 +35,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.EdgeMemo.core.model.Memory
 import com.example.EdgeMemo.core.model.MemorySyncState
+import com.example.EdgeMemo.core.model.MemoryType
 import com.example.EdgeMemo.presentation.components.EdgeCard
-import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
 import com.example.EdgeMemo.presentation.components.EdgeEmptyState
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
 import com.example.EdgeMemo.presentation.components.EdgeUiTags
-import com.example.EdgeMemo.presentation.components.MetricTile
 import com.example.EdgeMemo.presentation.components.PillButton
 import com.example.EdgeMemo.presentation.components.SectionHeader
-import com.example.EdgeMemo.presentation.components.StatusChip
 import com.example.EdgeMemo.presentation.components.StatusDot
-import com.example.EdgeMemo.presentation.components.TechLabel
 import com.example.EdgeMemo.presentation.components.TonalPill
 import com.example.EdgeMemo.presentation.components.relativeTimeLabel
+import com.example.EdgeMemo.presentation.machines.AssetModel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 
 @Composable
 fun DashboardScreen(
@@ -60,7 +72,7 @@ fun DashboardScreen(
     ) {
         when (val s = state) {
             LoadableState.Loading -> EdgeLoadingState(
-                label = "Reading local memory…",
+                label = "Reading records on this device…",
                 modifier = Modifier.padding(top = EdgeLayout.screenPadding),
             )
             is LoadableState.Failed -> EdgeErrorState(
@@ -84,257 +96,328 @@ private fun DashboardContent(
     viewModel: DashboardViewModel,
     nowMillis: () -> Long,
 ) {
-    OfflineNotice(visible = !isOnline)
-
     Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-        SectionHeader(
-            title = "Operational overview",
-            subtitle = "Local Qdrant memory — always available offline",
-        )
+        StatusReadout(data, isOnline, viewModel)
         Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-            MetricTile(
-                label = "Knowledge records",
-                value = data.totalRecords.toString(),
-                supportingLine = "active in local memory",
-                modifier = Modifier.weight(1f),
-            )
-            MetricTile(
-                label = "Assets referenced",
-                value = data.assetCount.toString(),
-                supportingLine = if (data.assetCount > 0) {
-                    "from record subject keys"
-                } else {
-                    "no asset references yet"
-                },
-                status = if (data.assetCount > 0) EdgeStatus.HEALTHY else EdgeStatus.NEUTRAL,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-            MetricTile(
-                label = "Maintenance records",
-                value = data.maintenanceCount.toString(),
-                supportingLine = "repairs · observations · procedures",
-                modifier = Modifier.weight(1f),
-            )
-            // UI Phase 4: the existing real metric navigates to the conflict
-            // workspace; it never adds analytics of its own.
-            MetricTile(
-                label = "Open conflicts",
-                value = data.unresolvedConflicts.toString(),
-                supportingLine = if (data.unresolvedConflicts > 0) "tap to review" else "none",
-                status = when {
-                    data.unresolvedConflicts > 0 -> EdgeStatus.WARNING
-                    data.sync.failed > 0 -> EdgeStatus.CRITICAL
-                    !isOnline -> EdgeStatus.OFFLINE
-                    else -> EdgeStatus.HEALTHY
-                },
+            PillButton(
+                text = "Ask a question",
+                onClick = viewModel::openAsk,
                 modifier = Modifier
                     .weight(1f)
-                    .semantics { contentDescription = "Open the conflict workspace" }
-                    .clickable(onClick = viewModel::openConflicts)
-                    .testTag(EdgeUiTags.OPEN_CONFLICTS),
+                    .testTag(EdgeUiTags.OPEN_ASK),
+            )
+            TonalPill(
+                text = "Add record",
+                onClick = viewModel::openCreateRecord,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("edge-dashboard-add-record"),
             )
         }
-        SyncOverviewRow(data, isOnline, onOpenSync = viewModel::openSync)
+    }
+
+    if (data.totalRecords == 0) {
+        EdgeEmptyState(
+            title = "No records yet",
+            message = "Add an observation or a repair to get started. " +
+                "Machines show up here once records name them.",
+        )
+        return
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-        SectionHeader(title = "Ask EdgeMind")
-        EdgeCard {
+        SectionHeader(
+            title = "Machines",
+            trailing = {
+                TextAction(
+                    text = "See all",
+                    contentAlignment = Alignment.BottomEnd,
+                    onClick = viewModel::openMachines,
+                    modifier = Modifier
+                        .offset(x = 10.dp)
+                        .testTag("edge-dashboard-open-machines"),
+                )
+            },
+        )
+        if (data.assets.isEmpty()) {
             Text(
-                text = "Grounded answers from your local maintenance memory — offline first.",
+                text = "No machines yet. Records that name a machine tag, like P-101, group here.",
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(vertical = 4.dp))
-            PillButton(
-                text = "Ask about equipment",
-                onClick = viewModel::openAsk,
-                modifier = Modifier.testTag(EdgeUiTags.OPEN_ASK),
-            )
+        } else {
+            EdgeListGroup(items = data.assets.take(MACHINE_LIMIT)) { asset ->
+                MachineRow(asset = asset, onClick = { viewModel.openMachine(asset.namespace) })
+            }
         }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
         SectionHeader(
-            title = "Recent activity",
-            subtitle = "latest knowledge in local memory",
-        )
-        if (data.recentRecords.isEmpty()) {
-            @Composable
-            fun AddRecordAction() {
-                PillButton(
-                    text = "+ Add Record",
-                    onClick = viewModel::openCreateRecord,
-                    modifier = Modifier.testTag("edge-dashboard-add-record"),
-                )
-            }
-            EdgeEmptyState(
-                title = "Local memory is empty",
-                message = "Capture notes or ingest documents from the records browser " +
-                    "to start building the edge knowledge base.",
-                action = ::AddRecordAction,
-            )} else {
-            data.recentRecords.forEach { record ->
-                RecentRecordRow(
-                    record = record,
-                    nowMillis = nowMillis(),
+            title = "Recent records",
+            trailing = {
+                TextAction(
+                    text = "See all",
+                    contentAlignment = Alignment.BottomEnd,
                     onClick = viewModel::openRecords,
+                    modifier = Modifier
+                        .offset(x = 10.dp)
+                        .testTag(EdgeUiTags.OPEN_RECORDS),
                 )
-            }
-            TonalPill(
-                text = "Browse all records",
+            },
+        )
+        val now = nowMillis()
+        EdgeListGroup(items = data.recentRecords) { record ->
+            RecordRow(
+                record = record,
+                nowMillis = now,
                 onClick = viewModel::openRecords,
-                modifier = Modifier.testTag(EdgeUiTags.OPEN_RECORDS),
-            )
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-        SectionHeader(title = "Machines & assets")
-        EdgeCardSecondary {
-            Text(
-                text = "Asset knowledge is derived from local records grouped by subject. " +
-                    "Open the machines view for the asset list foundation.",
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(vertical = 4.dp))
-            TonalPill(
-                text = "Open machines",
-                onClick = viewModel::openMachines,
-                modifier = Modifier
-                    .align(Alignment.Start)
-                    .testTag("edge-dashboard-open-machines"),
+                modifier = Modifier.testTag("${EdgeUiTags.RECENT_CARD_PREFIX}${record.memoryId}"),
             )
         }
     }
 }
 
-/** Connectivity never blocks local data: an honest notice, never an error. */
+/** Records / queued / conflicts as one gauge panel. Every figure is a real read. */
 @Composable
-fun OfflineNotice(visible: Boolean, modifier: Modifier = Modifier) {
-    if (!visible) return
+private fun StatusReadout(data: DashboardData, isOnline: Boolean, viewModel: DashboardViewModel) {
+    val sync = data.sync
+    val queuedCaption: Pair<String, EdgeStatus?> = when {
+        sync.failed > 0 -> "${sync.failed} failed" to EdgeStatus.CRITICAL
+        sync.syncing > 0 -> "${sync.syncing} uploading" to EdgeStatus.SYNCING
+        sync.pending > 0 && !isOnline -> "Uploads when online" to null
+        sync.pending > 0 -> "Waiting to upload" to null
+        sync.synced > 0 -> "All uploaded" to null
+        else -> "Nothing queued" to null
+    }
+    ReadoutPanel(
+        listOf(
+            Readout(
+                value = data.totalRecords.toString(),
+                label = "Records",
+                // Only worth a line when it says something the total doesn't.
+                caption = if (data.maintenanceCount != data.totalRecords) {
+                    "${data.maintenanceCount} maintenance"
+                } else {
+                    "On this device"
+                },
+            ),
+            Readout(
+                value = (sync.pending + sync.syncing + sync.failed).toString(),
+                label = "To sync",
+                caption = queuedCaption.first,
+                captionStatus = queuedCaption.second,
+                status = when {
+                    sync.failed > 0 -> EdgeStatus.CRITICAL
+                    sync.pending + sync.syncing > 0 -> EdgeStatus.WARNING
+                    else -> null
+                },
+                onClick = viewModel::openSync,
+                clickLabel = "Open sync status",
+                tag = EdgeUiTags.DASHBOARD_SYNC_ROW,
+            ),
+            Readout(
+                value = data.unresolvedConflicts.toString(),
+                label = "Conflicts",
+                caption = if (data.unresolvedConflicts > 0) "Needs review" else "None open",
+                status = if (data.unresolvedConflicts > 0) EdgeStatus.WARNING else null,
+                onClick = viewModel::openConflicts,
+                clickLabel = "Open the conflict workspace",
+                tag = EdgeUiTags.OPEN_CONFLICTS,
+            ),
+        ),
+    )
+}
+
+@Composable
+private fun MachineRow(asset: AssetModel.Asset, onClick: () -> Unit) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .semantics {
-                contentDescription =
-                    "Offline notice: working from local memory; cloud sync resumes when a network returns"
-            }
-            .padding(bottom = 0.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = EdgeLayout.cardPadding, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
     ) {
-        TechLabel(
-            text = "OFFLINE",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = asset.namespace.uppercase(),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = plural(asset.recordCount, "record", "records"),
+                style = EdgeType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (asset.pendingSyncCount > 0) {
+            StatusDot(
+                status = EdgeStatus.WARNING,
+                label = if (asset.pendingSyncCount == asset.recordCount) {
+                    "All queued"
+                } else {
+                    "${asset.pendingSyncCount} queued"
+                },
+            )
+        }
+    }
+}
+
+// ── Shared pieces (also used by the Sync screen) ─────────────────────────────
+
+/** One cell of a [ReadoutPanel]. */
+internal data class Readout(
+    val value: String,
+    val label: String,
+    val caption: String? = null,
+    val captionStatus: EdgeStatus? = null,
+    val status: EdgeStatus? = null,
+    val onClick: (() -> Unit)? = null,
+    val clickLabel: String? = null,
+    val tag: String? = null,
+)
+
+/** Big honest numbers side by side in one panel, split by hairlines. */
+@Composable
+internal fun ReadoutPanel(readouts: List<Readout>, modifier: Modifier = Modifier) {
+    EdgeCard(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(0.dp)) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            readouts.forEachIndexed { index, readout ->
+                if (index > 0) {
+                    Box(
+                        Modifier
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .padding(vertical = 14.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant),
+                    )
+                }
+                ReadoutCell(readout, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadoutCell(readout: Readout, modifier: Modifier) {
+    var cell = modifier.fillMaxHeight()
+    if (readout.onClick != null) {
+        cell = cell
+            .semantics { readout.clickLabel?.let { contentDescription = it } }
+            .clickable(onClick = readout.onClick)
+    }
+    readout.tag?.let { cell = cell.testTag(it) }
+    Column(
+        modifier = cell.padding(horizontal = 12.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(readout.value, style = EdgeType.metricValue, color = MaterialTheme.colorScheme.onSurface)
+            if (readout.status != null) StatusDot(status = readout.status, label = "")
+        }
         Text(
-            text = "Local intelligence stays fully available. Sync resumes automatically.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = readout.label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-@Composable
-private fun SyncOverviewRow(
-    data: DashboardData,
-    isOnline: Boolean,
-    onOpenSync: () -> Unit,
-) {
-    val summary = data.sync
-    val (status, label) = when {
-        summary.syncing > 0 -> EdgeStatus.SYNCING to "syncing"
-        summary.failed > 0 -> EdgeStatus.CRITICAL to "sync needs attention"
-        summary.pending > 0 -> EdgeStatus.WARNING to "sync pending"
-        !isOnline -> EdgeStatus.OFFLINE to "offline · queued locally"
-        summary.synced > 0 -> EdgeStatus.SYNCED to "synced"
-        else -> EdgeStatus.NEUTRAL to "no sync activity"
-    }
-    EdgeCardSecondary(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
-        ) {
-            StatusDot(
-                status = status,
-                label = label,
-                modifier = Modifier.testTag(EdgeUiTags.DASHBOARD_SYNC_ROW),
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-            StatusChip(
-                text = "${summary.pending} pending · ${summary.synced} synced · ${summary.failed} failed",
-                showDot = false,
+        readout.caption?.let {
+            Text(
+                text = it,
+                style = EdgeType.metadata,
+                color = readout.captionStatus?.let { s -> statusStyleFor(s).color }
+                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        androidx.compose.foundation.layout.Spacer(Modifier.padding(vertical = 2.dp))
-        Text(
-            text = "Sync status reflects durable Qdrant operation state only — " +
-                "queued work never shows as synchronized.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
+/** A record as one row: title and sync state, then type and age. */
 @Composable
-private fun RecentRecordRow(
+internal fun RecordRow(
     record: Memory,
     nowMillis: Long,
-    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    val syncStatus = when (record.syncState) {
-        MemorySyncState.PENDING -> EdgeStatus.WARNING
-        MemorySyncState.FAILED -> EdgeStatus.CRITICAL
-        MemorySyncState.SYNCED -> EdgeStatus.SYNCED
-        MemorySyncState.LOCAL -> EdgeStatus.NEUTRAL
-    }
-    EdgeCardSecondary(
-        modifier = Modifier
+    val (status, label) = syncStateDisplay(record.syncState)
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .testTag("${EdgeUiTags.RECENT_CARD_PREFIX}${record.memoryId}")
-            .clickable(onClick = onClick),
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(horizontal = EdgeLayout.cardPadding, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
             Text(
-                text = record.title.ifBlank { record.memoryId.take(8) },
-                style = EdgeType.bodyEmphasis,
+                text = record.title.ifBlank { "Untitled record" },
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            StatusDot(status = syncStatus, label = record.syncState.name.lowercase())
+            StatusDot(status = status, label = label)
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            TechLabel(
-                text = record.type.name,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "· ${record.source}",
+                text = recordTypeLabel(record.type),
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             Text(
                 text = relativeTimeLabel(record.updatedAt, nowMillis),
-                style = EdgeType.numeric,
+                style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
+
+/** Quiet tappable text for section headers ("See all"); 48dp target. */
+@Composable
+internal fun TextAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    contentAlignment: Alignment = Alignment.Center,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .heightIn(min = EdgeLayout.minTarget)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        contentAlignment = contentAlignment,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = color)
+    }
+}
+
+internal fun recordTypeLabel(type: MemoryType): String = when (type) {
+    MemoryType.DOCUMENT -> "Document"
+    MemoryType.NOTE -> "Note"
+    MemoryType.OBSERVATION -> "Observation"
+    MemoryType.PROCEDURE -> "Procedure"
+    MemoryType.REPAIR -> "Repair"
+    MemoryType.EVENT -> "Incident"
+    MemoryType.CLOUD_KNOWLEDGE -> "From the cloud"
+}
+
+internal fun syncStateDisplay(state: MemorySyncState): Pair<EdgeStatus, String> = when (state) {
+    MemorySyncState.PENDING -> EdgeStatus.WARNING to "Queued"
+    MemorySyncState.FAILED -> EdgeStatus.CRITICAL to "Failed"
+    MemorySyncState.SYNCED -> EdgeStatus.SYNCED to "Synced"
+    MemorySyncState.LOCAL -> EdgeStatus.NEUTRAL to "On device"
+}
+
+internal fun plural(count: Int, one: String, many: String): String =
+    "$count ${if (count == 1) one else many}"
+
+private const val MACHINE_LIMIT = 4

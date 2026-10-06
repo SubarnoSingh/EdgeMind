@@ -33,6 +33,8 @@ data class DashboardData(
     val unresolvedConflicts: Long,
     val sync: SyncSummary,
     val recentRecords: List<Memory>,
+    /** The same derived assets [assetCount] counts, newest activity first. */
+    val assets: List<AssetModel.Asset> = emptyList(),
 )
 
 class DashboardViewModel(
@@ -56,13 +58,14 @@ class DashboardViewModel(
                 val memories = listMemories()
                 val sync = syncStatusReader.outboxCounts()
                 val conflicts = countUnresolvedConflicts()
+                val assets = AssetModel.deriveAssets(memories)
                 val recent = memories
                     .sortedByDescending { it.updatedAt }
                     .take(RECENT_LIMIT)
                 _uiState.value = LoadableState.Ready(
                     DashboardData(
                         totalRecords = memories.size,
-                        assetCount = AssetModel.deriveAssets(memories).size,
+                        assetCount = assets.size,
                         maintenanceCount = memories.count {
                             it.type == MemoryType.REPAIR ||
                                 it.type == MemoryType.OBSERVATION ||
@@ -72,6 +75,7 @@ class DashboardViewModel(
                         unresolvedConflicts = conflicts,
                         sync = sync,
                         recentRecords = recent,
+                        assets = assets,
                     ),
                 )
             } catch (e: Exception) {

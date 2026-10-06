@@ -100,12 +100,13 @@ class EdgeMindShellComposeTest {
         showShell(newContainer())
         waitForDashboard()
         // Fresh shard: metrics rendered from real zero counts, never faked.
-        compose.onNodeWithText("Knowledge records").assertIsDisplayed()
-        compose.onNodeWithText("Maintenance records").assertIsDisplayed()
-        waitForNode("Local memory is empty")
+        compose.onNodeWithText("Records").assertIsDisplayed()
+        compose.onNodeWithText("To sync").assertIsDisplayed()
+        compose.onNodeWithText("Conflicts").assertIsDisplayed()
+        waitForNode("No records yet")
         // The recent-activity empty state sits below the fold on a phone-sized
         // test viewport: existence + semantics matter, pixel visibility does not.
-        compose.onNodeWithText("Local memory is empty").assertExists()
+        compose.onNodeWithText("No records yet").assertExists()
     }
 
     @Test
@@ -218,7 +219,7 @@ class EdgeMindShellComposeTest {
     private fun waitForDashboard() = compose.waitUntil(15_000) {
         compose.onAllNodesWithTag(EdgeUiTags.DASHBOARD)
             .fetchSemanticsNodes().isNotEmpty() &&
-            compose.onAllNodesWithText("Knowledge records")
+            compose.onAllNodesWithText("Records")
                 .fetchSemanticsNodes().isNotEmpty()
     }
 
