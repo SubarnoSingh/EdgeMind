@@ -96,7 +96,7 @@ class MachinesViewModel(
         if (current.submitting) return
         val idToken = machineIdToken(current.id)
         if (idToken == null) {
-            _creation.update { it.copy(error = "A machine/asset ID is required (letters or digits).") }
+            _creation.update { it.copy(error = "Enter a machine ID, like P-102.") }
             return
         }
         // Reject duplicates / collisions BEFORE creating — never merge, never
@@ -105,13 +105,9 @@ class MachinesViewModel(
         // (possibly hyphenated) namespace such as the p-101 demo.
         findExistingNamespace(idToken)?.let { existing ->
             val shown = existing.uppercase()
-            val message = if (existing == idToken) {
-                "A machine with ID “$shown” already exists. Open it to add records."
-            } else {
-                "“${idToken.uppercase()}” is the same machine as the existing “$shown”. " +
-                    "No duplicate was created — add records to “$shown” instead."
+            _creation.update {
+                it.copy(error = "$shown already exists. Open it from the list to add records.")
             }
-            _creation.update { it.copy(error = message) }
             return
         }
         _creation.update { it.copy(submitting = true, error = null) }
@@ -470,7 +466,7 @@ class MachineDetailViewModel(
         if (composer.submitting) return
         if (composer.title.isBlank() && composer.content.isBlank()) {
             _uiState.update {
-                it.copy(composer = composer.copy(error = "A title or description is required."))
+                it.copy(composer = composer.copy(error = "Add a title or a few words about what happened."))
             }
             return
         }
@@ -495,7 +491,7 @@ class MachineDetailViewModel(
                             type = created.type,
                             submitting = false,
                             error = null,
-                            createdMessage = "Saved to local memory for ${namespace.uppercase()}.",
+                            createdMessage = "Saved to ${namespace.uppercase()}.",
                             createdSyncState = created.syncState,
                         ),
                     )

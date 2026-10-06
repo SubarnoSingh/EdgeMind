@@ -256,7 +256,7 @@ class OperationalActivityPhase5Test {
         viewModel.openObservationComposer()
         assertEquals(MemoryType.OBSERVATION, viewModel.uiState.value.composer.type)
         viewModel.submitComposer()
-        assertEquals("A title or description is required.", viewModel.uiState.value.composer.error)
+        assertEquals("Add a title or a few words about what happened.", viewModel.uiState.value.composer.error)
         assertEquals(0, repository.createCalls)
 
         viewModel.onComposerTitleChange("Seal vibration observed")
@@ -335,7 +335,7 @@ class OperationalActivityPhase5Test {
         val afterFirst = viewModel.uiState.value.composer
         assertTrue("composer stays open after save", afterFirst.open)
         assertTrue("form cleared for the next record", afterFirst.title.isEmpty() && afterFirst.content.isEmpty())
-        assertEquals("Saved to local memory for P101.", afterFirst.createdMessage)
+        assertEquals("Saved to P101.", afterFirst.createdMessage)
 
         // Second record: a different type on the SAME machine, without leaving.
         viewModel.onComposerTypeChange(MemoryType.EVENT)

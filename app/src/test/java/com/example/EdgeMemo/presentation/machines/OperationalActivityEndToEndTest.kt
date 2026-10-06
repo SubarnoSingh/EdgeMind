@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -83,8 +84,11 @@ class OperationalActivityEndToEndTest {
 
         // Real operational summary and category counts from five stored rows.
         waitForText("5 records")
-        listOf("Maintenance (1)", "Observations (1)", "Incidents (1)", "Procedures (1)", "Documents (1)")
-            .forEach { label -> compose.onNodeWithText(label).assertExists() }
+        listOf("maintenance", "observations", "incidents", "procedures", "documents").forEach { key ->
+            compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}$key")
+                .assert(hasText(key, substring = true, ignoreCase = true))
+                .assert(hasText("1"))
+        }
         compose.onNodeWithTag(AssetUiTags.MAINTENANCE).assertExists()
         compose.onNodeWithTag(AssetUiTags.OBSERVATIONS).assertExists()
         compose.onNodeWithTag(AssetUiTags.INCIDENTS).assertExists()
@@ -106,7 +110,7 @@ class OperationalActivityEndToEndTest {
         waitForTag(RecordDetailTags.SCREEN)
         waitForText("Installed the approved mechanical seal")
         compose.onNodeWithText("p101/seal").assertExists()
-        compose.onNodeWithTag(RecordDetailTags.BACK).performClick()
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForTag(AssetUiTags.SCREEN)
         waitForTag("${AssetUiTags.FILTER_PREFIX}incidents")
 
@@ -167,16 +171,21 @@ class OperationalActivityEndToEndTest {
             runBlocking { container.getConflict(conflictId) }!!.state,
         )
 
+        // The real local record remains intact and nothing is left unresolved.
+        // (Read here, before navigating: a main-thread runBlocking read while
+        // the workspace reloads contends with the record store's lock.)
+        assertNotNull(runBlocking { container.memoryRepository.get(observation.memoryId) })
+        assertEquals(0L, runBlocking { container.countUnresolvedConflicts() })
+
         // Returning re-reads durable conflict state; the activity row no
-        // longer claims conflict while the real local record remains intact.
-        compose.onNodeWithTag(ConflictUiTags.BACK).performClick()
+        // longer claims conflict.
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForTag(AssetUiTags.SCREEN)
+        waitForTag(AssetUiTags.OVERVIEW)
         compose.waitUntil(20_000) {
             compose.onAllNodesWithTag("${AssetUiTags.RECORD_CONFLICT_PREFIX}${observation.memoryId}")
                 .fetchSemanticsNodes().isEmpty()
         }
-        assertNotNull(runBlocking { container.memoryRepository.get(observation.memoryId) })
-        assertEquals(0L, runBlocking { container.countUnresolvedConflicts() })
 
         // Offline/local architecture guard: browsing, detail and local write
         // all succeeded without a backend; only the one application shard exists.

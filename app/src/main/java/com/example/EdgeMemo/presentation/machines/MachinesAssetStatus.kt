@@ -31,13 +31,17 @@ object MachinesAssetStatus {
     data class CardStatus(val status: EdgeStatus, val label: String)
 
     fun of(asset: AssetModel.Asset, sync: SyncSummary, isOnline: Boolean): CardStatus = when {
-        asset.unresolvedConflictCount > 0L -> CardStatus(EdgeStatus.WARNING, "conflict")
+        asset.unresolvedConflictCount > 0L -> CardStatus(
+            EdgeStatus.WARNING,
+            if (asset.unresolvedConflictCount == 1L) "Conflict to review"
+            else "${asset.unresolvedConflictCount} conflicts to review",
+        )
         asset.pendingSyncCount > 0 -> when {
-            sync.syncing > 0L -> CardStatus(EdgeStatus.SYNCING, "syncing")
-            !isOnline -> CardStatus(EdgeStatus.OFFLINE, "queued offline")
-            else -> CardStatus(EdgeStatus.WARNING, "queued")
+            sync.syncing > 0L -> CardStatus(EdgeStatus.SYNCING, "Syncing")
+            !isOnline -> CardStatus(EdgeStatus.OFFLINE, "${asset.pendingSyncCount} queued, offline")
+            else -> CardStatus(EdgeStatus.WARNING, "${asset.pendingSyncCount} queued")
         }
-        asset.recordCount > 0 -> CardStatus(EdgeStatus.HEALTHY, "ready")
-        else -> CardStatus(EdgeStatus.NEUTRAL, "no records")
+        asset.recordCount > 0 -> CardStatus(EdgeStatus.HEALTHY, "Nothing queued")
+        else -> CardStatus(EdgeStatus.NEUTRAL, "No records yet")
     }
 }

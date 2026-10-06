@@ -156,8 +156,8 @@ class AssetWorkspaceEndToEndTest {
         compose.onNodeWithTag("${EdgeUiTags.MACHINE_CARD_PREFIX}p101").performClick()
         waitForTag(AssetUiTags.SCREEN)
         // The workspace reads the real shard on IO — wait for the Ready state
-        // (the overview strip is the first content-bearing node).
-        waitForText("records")
+        // (the count/filter strip only renders once records are loaded).
+        waitForTag(AssetUiTags.OVERVIEW)
     }
 
     @Test
@@ -169,7 +169,7 @@ class AssetWorkspaceEndToEndTest {
         // Real identifier + real derived counts (nothing invented).
         compose.onNodeWithText("P101").assertIsDisplayed()
         waitForText("3 records")
-        // Category chips from the real records: Maintenance (1), Observations (1), Procedures (1).
+        // Category filter chips from the real records: Maintenance, Observations, Procedures.
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}maintenance").assertExists()
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}observations").assertExists()
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}procedures").assertExists()
@@ -179,7 +179,9 @@ class AssetWorkspaceEndToEndTest {
         // Timeline entries carry the REAL seeded titles.
         compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[0].memoryId}")
             .assertExists()
-        compose.onNodeWithText("P-101 seal replacement").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
+            .performScrollTo()
+            .assertIsDisplayed()
 
         // Timeline entry opens the real record detail.
         compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
@@ -190,15 +192,14 @@ class AssetWorkspaceEndToEndTest {
         waitForText("heat checking")
         compose.onNodeWithTag(RecordDetailTags.CONTENT).assertExists()
         compose.onNodeWithText("heat checking", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("p101/seal").assertExists() // real subject shown
+        compose.onNodeWithText("p101/seal").performScrollTo().assertExists() // real subject shown
         compose.onAllNodesWithText("v1").fetchSemanticsNodes().let {
             assertTrue("version fact rendered", it.isNotEmpty())
         }
 
-        // Deterministic back.
-        compose.onNodeWithTag(RecordDetailTags.BACK).performClick()
-        waitForText("P-101 seal replacement")
-        compose.onNodeWithText("P-101 seal replacement").assertExists()
+        // Deterministic back (the shell header owns the one back control).
+        compose.onNodeWithTag("edge-shell-back").performClick()
+        waitForTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
     }
 
 
@@ -293,11 +294,10 @@ class AssetWorkspaceEndToEndTest {
         seed(container)
         openWorkspace(container)
 
-        // Robolectric provides no working INTERNET network: browsing worked
-        // above; the disclosure item confirms the offline-first stance.
+        // Robolectric provides no working INTERNET network: the workspace and
+        // its full record list still render from the local shard.
         compose.onNodeWithTag(AssetUiTags.SCREEN).assertIsDisplayed()
-        compose.onNodeWithText("browses fully offline", substring = true)
-            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag(AssetUiTags.TIMELINE).performScrollTo().assertIsDisplayed()
 
         // No invented machine telemetry is displayed anywhere.
         for (fabricated in listOf("Health", "Uptime", "Vibration", "Risk score")) {

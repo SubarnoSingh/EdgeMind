@@ -1,18 +1,13 @@
 package com.example.EdgeMemo.presentation.machines
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,46 +16,41 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.example.EdgeMemo.core.model.Memory
 import com.example.EdgeMemo.core.model.MemoryMetadataKeys
-import com.example.EdgeMemo.core.model.MemorySyncState
-import com.example.EdgeMemo.presentation.components.EdgeCard
-import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
+import com.example.EdgeMemo.presentation.components.EdgeDimens
 import com.example.EdgeMemo.presentation.components.EdgeEmptyState
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
 import com.example.EdgeMemo.presentation.components.MarkdownBody
-import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
+import com.example.EdgeMemo.presentation.components.SectionHeader
+import com.example.EdgeMemo.presentation.components.StatusDot
+import com.example.EdgeMemo.presentation.components.relativeTimeLabel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
-import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
-import com.example.EdgeMemo.ui.theme.statusColor
 
 /** UI Phase 3 record-detail test tags. */
 object RecordDetailTags {
     const val SCREEN = "edge-record-detail"
     const val CONTENT = "edge-record-detail-content"
-    const val BACK = "edge-record-detail-back"
     const val EMPTY = "edge-record-detail-empty"
 }
 
 /**
  * Full record view for one stored knowledge record. Every field shown exists
  * on the domain `Memory`; document/chunk provenance comes from the real
- * metadata keys the ingestion/retrieval layers already write. No storage
- * internals (shards, point ids beyond the record id, JNI) are shown.
+ * metadata keys the ingestion/retrieval layers already write. Back is drawn
+ * by the shell header; [onBack] stays for callers.
  */
 @Composable
 fun RecordDetailScreen(
     viewModel: RecordDetailViewModel,
-    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     modifier: Modifier = Modifier,
     nowMillis: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -70,42 +60,33 @@ fun RecordDetailScreen(
             .fillMaxSize()
             .testTag(RecordDetailTags.SCREEN)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+            .padding(
+                start = EdgeLayout.screenPadding,
+                end = EdgeLayout.screenPadding,
+                top = EdgeLayout.compactGap,
+                bottom = EdgeLayout.sectionGap,
+            ),
+        verticalArrangement = Arrangement.spacedBy(EdgeLayout.sectionGap),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "\u2190 Back",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .testTag(RecordDetailTags.BACK)
-                    .semantics { contentDescription = "Back to the asset workspace" }
-                    .clickable(onClick = onBack)
-                    .padding(EdgeLayout.compactGap),
-            )
-            Spacer(Modifier.weight(1f))
-            TechLabel(text = "RECORD")
-        }
         when (val s = state) {
-            LoadableState.Loading -> EdgeLoadingState("Reading record\u2026")
+            LoadableState.Loading -> EdgeLoadingState("Loading record…")
             is LoadableState.Failed -> EdgeErrorState(s.message, onRetry = viewModel::refresh)
             is LoadableState.Ready -> {
                 val record = s.value
                 if (record == null) {
                     EdgeEmptyState(
-                        title = "Record is no longer available",
-                        message = "It may have been deleted or superseded.",
+                        title = "This record is gone",
+                        message = "It was deleted or replaced by a newer version.",
                         modifier = Modifier.testTag(RecordDetailTags.EMPTY),
                     )
                 } else {
-                    RecordHeader(record)
-                    RecordContent(record)
-                    RecordClassification(record)
-                    RecordProvenance(record)
-                    RecordState(record)
-                    if (record.metadata.isNotEmpty()) RecordMetadata(record)
-                    RecordIdentity(record)
+                    RecordHeader(record, nowMillis())
+                    RecordBody(record)
+                    FactGroup("About", aboutFacts(record))
+                    FactGroup("Source", sourceFacts(record))
+                    FactGroup("Sync", syncFacts(record))
+                    if (record.metadata.isNotEmpty()) FactGroup("Document", documentFacts(record))
+                    FactGroup("Identifiers", identifierFacts(record), valueStyle = EdgeType.code)
                 }
             }
         }
@@ -113,40 +94,44 @@ fun RecordDetailScreen(
 }
 
 @Composable
-private fun RecordHeader(record: Memory) {
-    EdgeCard {
-        Text(
-            text = AssetModel.categoryOf(record.type).label.uppercase(),
-            style = EdgeType.label,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.heightIn(min = 2.dp))
+private fun RecordHeader(record: Memory, nowMillis: Long) {
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
         Text(
             text = record.title.ifBlank { record.memoryId.take(8) },
-            style = EdgeType.sectionTitle,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        val syncStatus = when (record.syncState) {
-            MemorySyncState.PENDING -> EdgeStatus.WARNING to "pending sync"
-            MemorySyncState.FAILED -> EdgeStatus.CRITICAL to "sync failed"
-            MemorySyncState.SYNCED -> EdgeStatus.SYNCED to "synced"
-            MemorySyncState.LOCAL -> EdgeStatus.NEUTRAL to "local only"
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingL),
+        ) {
+            Text(
+                text = AssetModel.categoryOf(record.type).singular,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = recordTimeLabel(record.updatedAt, nowMillis),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val sync = recordSyncStatus(record.syncState, long = true)
+            StatusDot(status = sync.status, label = sync.label)
         }
-        Spacer(Modifier.padding(vertical = 2.dp))
-        StatusChip(text = syncStatus.second, color = syncStatus.first.statusColor())
     }
 }
 
 @Composable
-private fun RecordContent(record: Memory) {
-    TechLabel(text = "CONTENT")
-    EdgeCardSecondary(
-        modifier = Modifier.testTag(RecordDetailTags.CONTENT),
+private fun RecordBody(record: Memory) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = 600.dp)
+            .testTag(RecordDetailTags.CONTENT),
     ) {
         if (record.content.isBlank()) {
             Text(
-                text = "(no text stored)",
-                style = EdgeType.metadata,
+                text = "No text was saved with this record.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
@@ -155,67 +140,52 @@ private fun RecordContent(record: Memory) {
     }
 }
 
-@Composable
-private fun RecordClassification(record: Memory) {
-    Section("CLASSIFICATION") {
-        Fact("Type", record.type.name.lowercase().replace('_', ' '))
-        record.subjectKey?.takeIf { it.isNotBlank() }?.let { Fact("Subject", it) }
-        if (record.tags.isNotEmpty()) Fact("Tags", record.tags.joinToString(", "))
-        Fact("Importance", record.importance.toString())
-        Fact("Sensitivity", record.sensitivity.name.lowercase())
-    }
+private fun aboutFacts(record: Memory): List<Pair<String, String>> = buildList {
+    val category = AssetModel.categoryOf(record.type)
+    add("Type" to if (category == AssetModel.AssetRecordCategory.OTHER) humanize(record.type.name) else category.singular)
+    record.subjectKey?.takeIf { it.isNotBlank() }?.let { add("Subject" to it) }
+    if (record.tags.isNotEmpty()) add("Tags" to record.tags.joinToString(", "))
+    add("Importance" to record.importance.toString())
+    add("Sensitivity" to humanize(record.sensitivity.name))
 }
 
-@Composable
-private fun RecordProvenance(record: Memory) {
-    Section("PROVENANCE") {
-        Fact("Source", record.source)
-        Fact("Origin", record.origin.name.lowercase())
-        record.authority?.takeIf { it.isNotBlank() }?.let { Fact("Authority", it) }
-        Fact("Created", formatRecordTimestamp(record.createdAt))
-        Fact("Updated", formatRecordTimestamp(record.updatedAt))
-    }
+private fun sourceFacts(record: Memory): List<Pair<String, String>> = buildList {
+    add("Source" to record.source)
+    add("Origin" to humanize(record.origin.name))
+    record.authority?.takeIf { it.isNotBlank() }?.let { add("Authority" to it) }
+    add("Created" to formatRecordTimestamp(record.createdAt))
+    add("Updated" to formatRecordTimestamp(record.updatedAt))
 }
 
-@Composable
-private fun RecordState(record: Memory) {
-    Section("POLICY & SYNC") {
-        Fact("Sync decision", record.syncDecision.name.lowercase().replace('_', ' '))
-        record.policyReason?.takeIf { it.isNotBlank() }?.let { Fact("Policy reason", it) }
-        record.redactedTitle?.takeIf { it.isNotBlank() }?.let {
-            Fact("Synced title", it)
-        }
-        Fact("Record sync state", record.syncState.name.lowercase())
-        Fact("Version", "v${record.version}")
-        record.supersedes?.takeIf { it.isNotBlank() }?.let { Fact("Supersedes", it) }
-    }
+private fun syncFacts(record: Memory): List<Pair<String, String>> = buildList {
+    add("Policy" to humanize(record.syncDecision.name))
+    record.policyReason?.takeIf { it.isNotBlank() }?.let { add("Why" to it) }
+    record.redactedTitle?.takeIf { it.isNotBlank() }?.let { add("Shared title" to it) }
+    add("State" to recordSyncStatus(record.syncState, long = true).label)
+    add("Version" to "v${record.version}")
+    record.supersedes?.takeIf { it.isNotBlank() }?.let { add("Replaces" to it) }
 }
 
-@Composable
-private fun RecordMetadata(record: Memory) {
-    Section("DOCUMENT / EVIDENCE") {
-        record.metadata[MemoryMetadataKeys.DOCUMENT_TITLE]?.let { Fact("Document", it) }
-        record.metadata[MemoryMetadataKeys.SOURCE_NAME]?.let { Fact("File", it) }
-        record.metadata[MemoryMetadataKeys.PAGE]?.let { Fact("Page", it) }
-        record.metadata[MemoryMetadataKeys.SECTION]?.let { Fact("Section", it) }
-        record.metadata[MemoryMetadataKeys.CHUNK_INDEX]?.let {
-            it.toIntOrNull()?.plus(1)?.toString()?.let { n -> Fact("Chunk", n) }
-        }
-        record.metadata[MemoryMetadataKeys.CHUNK_COUNT]?.let { Fact("Chunks total", it) }
-        record.metadata[MemoryMetadataKeys.FORMAT]?.let { Fact("Format", it) }
-        // Any additional real metadata is shown as-is (keys are the domain's).
-        record.metadata.entries
-            .filter { it.key !in KNOWN_METADATA_KEYS }
-            .forEach { (key, value) -> Fact(key, value) }
+private fun documentFacts(record: Memory): List<Pair<String, String>> = buildList {
+    val meta = record.metadata
+    meta[MemoryMetadataKeys.DOCUMENT_TITLE]?.let { add("Document" to it) }
+    meta[MemoryMetadataKeys.SOURCE_NAME]?.let { add("File" to it) }
+    meta[MemoryMetadataKeys.PAGE]?.let { add("Page" to it) }
+    meta[MemoryMetadataKeys.SECTION]?.let { add("Section" to it) }
+    meta[MemoryMetadataKeys.CHUNK_INDEX]?.toIntOrNull()?.let { index ->
+        val total = meta[MemoryMetadataKeys.CHUNK_COUNT]
+        add("Part" to if (total != null) "${index + 1} of $total" else "${index + 1}")
     }
+    meta[MemoryMetadataKeys.FORMAT]?.let { add("Format" to it) }
+    // Any additional real metadata is shown as-is (keys are the domain's).
+    meta.entries
+        .filter { it.key !in KNOWN_METADATA_KEYS }
+        .forEach { (key, value) -> add(humanizeKey(key) to value) }
 }
 
-@Composable
-private fun RecordIdentity(record: Memory) {
-    Section("RECORD") {
-        Fact("Record id", record.memoryId)
-        record.chunkId?.takeIf { it.isNotBlank() }?.let { Fact("Chunk id", it) }
-    }
+private fun identifierFacts(record: Memory): List<Pair<String, String>> = buildList {
+    add("Record" to record.memoryId)
+    record.chunkId?.takeIf { it.isNotBlank() }?.let { add("Chunk" to it) }
 }
 
 private val KNOWN_METADATA_KEYS = setOf(
@@ -231,38 +201,63 @@ private val KNOWN_METADATA_KEYS = setOf(
 )
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-        TechLabel(text = title, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        EdgeCardSecondary { content() }
+private fun FactGroup(
+    title: String,
+    facts: List<Pair<String, String>>,
+    valueStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+) {
+    if (facts.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(title)
+        EdgeListGroup(facts) { (label, value) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = EdgeDimens.spacingL, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingM),
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(0.38f),
+                )
+                Text(
+                    text = value,
+                    style = valueStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(0.62f),
+                )
+            }
+        }
     }
 }
 
-@Composable
-private fun Fact(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
-    ) {
-        Text(
-            text = label,
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            style = EdgeType.numeric,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(2f),
-        )
-    }
-}
+/** `LOCAL_ONLY` -> `Local only`. Enum names are identifiers, not copy. */
+private fun humanize(enumName: String): String =
+    enumName.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/** `recordedDate` -> `Recorded date`. */
+private fun humanizeKey(key: String): String =
+    key.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ')
+        .lowercase().replaceFirstChar { it.uppercase() }
 
 /** UTC-formatted stable timestamps; deterministic across devices and tests. */
 fun formatRecordTimestamp(epochMillis: Long): String {
-    if (epochMillis <= 0L) return "\u2014"
+    if (epochMillis <= 0L) return "—"
     return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm 'UTC'", java.util.Locale.US)
+        .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        .format(java.util.Date(epochMillis))
+}
+
+/**
+ * One time label per row: relative while recent ("2h ago"), a plain date once
+ * it's older than a week ("12 Sep 2026", UTC like [formatRecordTimestamp]).
+ */
+internal fun recordTimeLabel(epochMillis: Long, nowMillis: Long): String {
+    if (epochMillis <= 0L) return "—"
+    if (nowMillis - epochMillis < 7 * 86_400_000L) return relativeTimeLabel(epochMillis, nowMillis)
+    return java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.US)
         .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
         .format(java.util.Date(epochMillis))
 }

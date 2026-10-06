@@ -275,7 +275,7 @@ class GroundedAskEndToEndTest {
         compose.onNodeWithTag("edge-tab-machines").performClick()
         waitForIdleTag("${EdgeUiTags.MACHINE_CARD_PREFIX}p101")
         compose.onNodeWithTag("${EdgeUiTags.MACHINE_CARD_PREFIX}p101").performClick()
-        waitForIdleText("Ask about this asset")
+        waitForIdleTag("edge-ask-about-asset")
         compose.onNodeWithTag("edge-ask-about-asset").performScrollTo().performClick()
 
         // SAME Ask surface (no second screen), carrying the asset context chip.
