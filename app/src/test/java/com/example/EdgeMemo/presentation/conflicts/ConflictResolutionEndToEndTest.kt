@@ -239,6 +239,13 @@ class ConflictResolutionEndToEndTest {
         }
         assertEquals(1, ops.count { it.version == 2 })
         assertTrue(ops.all { it.operationId.value.startsWith("UPSERT:") })
+        // The durable record's own sync state backs the "queued" claim. Read
+        // before navigating away: a runBlocking read on the main thread while
+        // the asset screen refreshes can deadlock under Robolectric.
+        assertEquals(
+            com.example.EdgeMemo.core.model.MemorySyncState.PENDING,
+            record.syncState,
+        )
 
         // Back on the asset workspace: after refresh the conflict section is
         // gone and counts reflect the durable state.
@@ -248,10 +255,5 @@ class ConflictResolutionEndToEndTest {
             compose.onAllNodesWithTag("${AssetUiTags.CONFLICT_PREFIX}$conflictId")
                 .fetchSemanticsNodes().isEmpty()
         }
-        // The durable record's own sync state backs the "queued" claim.
-        assertEquals(
-            com.example.EdgeMemo.core.model.MemorySyncState.PENDING,
-            runBlocking { container.memoryRepository.get(memoryId) }!!.syncState,
-        )
     }
 }
