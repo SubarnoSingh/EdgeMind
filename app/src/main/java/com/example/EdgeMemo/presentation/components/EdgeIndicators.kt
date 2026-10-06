@@ -31,6 +31,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.font.FontWeight
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
@@ -47,26 +52,28 @@ fun StatusDot(
     Row(
         modifier = modifier.semantics { contentDescription = "$label: $status" },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap + 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(
             Modifier
                 .size(EdgeLayout.statusDotSize)
                 .background(style.color, CircleShape),
         )
-        Text(
-            text = label,
-            style = EdgeType.label,
-            color = style.onContainer,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (label.isNotEmpty()) {
+            Text(
+                text = label,
+                style = EdgeType.label,
+                color = style.onContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 /**
- * Compact bordered status badge for header bars: dot + uppercase label,
- * tinted container. Accessibility label combines both.
+ * Compact header badge: dot + short label on a tinted, squared chip. The
+ * accessibility label is the full text.
  */
 @Composable
 fun EdgeStatusBadge(
@@ -77,18 +84,17 @@ fun EdgeStatusBadge(
     val style = statusStyleFor(status)
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(style.container, RoundedCornerShape(50))
-            .border(EdgeLayout.hairline, style.color.copy(alpha = 0.35f), RoundedCornerShape(50))
+            .clip(RoundedCornerShape(8.dp))
+            .background(style.container, RoundedCornerShape(8.dp))
             .semantics { contentDescription = label }
-            .padding(horizontal = EdgeLayout.cardGap, vertical = 5.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(Modifier.size(6.dp).background(style.color, CircleShape))
         Text(
-            text = label.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
             color = style.onContainer,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -96,7 +102,11 @@ fun EdgeStatusBadge(
     }
 }
 
-/** Dashboard metric tile: monospace value + text label + optional status. */
+/**
+ * Metric readout: a large tabular figure over its label, like a gauge face.
+ * A status dot sits beside the number only when the value means something
+ * is off (or explicitly fine).
+ */
 @Composable
 fun MetricTile(
     label: String,
@@ -106,26 +116,21 @@ fun MetricTile(
     status: EdgeStatus? = null,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    EdgeCardSecondary(modifier = modifier) {
-        Row(verticalAlignment = Alignment.Top) {
+    EdgeCardSecondary(modifier = modifier, contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = value,
                 style = EdgeType.metricValue,
                 color = valueColor,
             )
-            Spacer(Modifier.weight(1f))
             if (status != null) {
-                StatusDot(
-                    status = status,
-                    label = "",
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                StatusDot(status = status, label = "")
             }
         }
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             text = label,
-            style = EdgeType.label,
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -142,7 +147,10 @@ fun MetricTile(
     }
 }
 
-/** Bottom application navigation: five destinations, real state only. */
+/**
+ * Bottom navigation: flat panel with a top hairline. The active tab gets an
+ * iris bar above its icon and full-contrast text; inactive tabs stay muted.
+ */
 @Composable
 fun <T : Any> EdgeBottomNavBar(
     destinations: List<T>,
@@ -155,60 +163,62 @@ fun <T : Any> EdgeBottomNavBar(
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(EdgeUiTags.BOTTOM_NAV)
-                .height(EdgeLayout.bottomNavHeight)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            destinations.forEach { destination ->
-                val isSelected = destination == selected
-                val label = labelOf(destination)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .defaultMinSize(minHeight = EdgeLayout.minTarget)
-                        .clip(RoundedCornerShape(14.dp))
-                        .testTag("edge-tab-${label.lowercase().replace(' ', '-')}")
-                        .then(
-                            if (isSelected) {
-                                Modifier.background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    RoundedCornerShape(14.dp),
-                                )
-                            } else {
-                                Modifier
-                            },
+        Column(Modifier.navigationBarsPadding()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(EdgeUiTags.BOTTOM_NAV)
+                    .height(EdgeLayout.bottomNavHeight),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                destinations.forEach { destination ->
+                    val isSelected = destination == selected
+                    val label = labelOf(destination)
+                    val tint = if (isSelected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .testTag("edge-tab-${label.lowercase().replace(' ', '-')}")
+                            .semantics { contentDescription = "$label tab" }
+                            .clickable { onSelect(destination) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(28.dp)
+                                .height(2.dp)
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp),
+                                ),
                         )
-                        .semantics { contentDescription = "$label tab" }
-                        .clickable { onSelect(destination) }
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Icon(
-                        imageVector = iconOf(destination),
-                        contentDescription = null,
-                        modifier = Modifier.size(EdgeLayout.indicatorSize + 4.dp),
-                        tint = if (isSelected) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                        Spacer(Modifier.height(9.dp))
+                        Icon(
+                            imageVector = iconOf(destination),
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                            tint = tint,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = tint,
+                        )
+                    }
                 }
             }
         }

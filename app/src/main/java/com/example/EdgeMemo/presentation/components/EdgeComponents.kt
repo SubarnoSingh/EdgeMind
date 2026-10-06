@@ -54,10 +54,11 @@ object EdgeDimens {
     val spacingL = 16.dp
     val spacingXl = 24.dp
     val spacing2xl = 32.dp
-    val cardRadius = 20.dp
-    val pillRadius = 28.dp
-    val inputRadius = 26.dp
-    val minTouch = 44.dp
+    val cardRadius = 14.dp
+    val pillRadius = 12.dp
+    val inputRadius = 14.dp
+    val chipRadius = 6.dp
+    val minTouch = 48.dp
 }
 
 // ── App icons (core icon set has no sun/moon; drawn locally) ───────────────
@@ -122,46 +123,11 @@ val MoonIcon: ImageVector by lazy {
     }.build()
 }
 
-// A simple gear, drawn locally because the core icon set has no Settings icon.
-val SettingsIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "Settings",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f,
-    ).apply {
-        for (i in 0 until 6) {
-            group(name = "tooth$i", rotate = 60f * i, pivotX = 12f, pivotY = 12f) {
-                path(fill = SolidColor(Color.Black)) {
-                    moveTo(10.7f, 1.8f)
-                    lineTo(13.3f, 1.8f)
-                    lineTo(13.3f, 6.4f)
-                    lineTo(10.7f, 6.4f)
-                    close()
-                }
-            }
-        }
-        path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
-            moveTo(6f, 12f)
-            arcTo(6f, 6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 18f, 12f)
-            arcTo(6f, 6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 6f, 12f)
-            close()
-            moveTo(14.4f, 12f)
-            arcTo(2.4f, 2.4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 9.6f, 12f)
-            arcTo(2.4f, 2.4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 14.4f, 12f)
-            close()
-        }
-    }.build()
-}
-
 // ── Cards ──────────────────────────────────────────────────────────────────
 
 /**
- * The standard EdgeMind surface: rounded, hairline-bordered, slightly
- * translucent so the ambient background breathes through, with calm
- * elevation. Primary content (answers, capture, memory cards).
- * Uses surface color for clear separation from background in dark mode.
+ * The standard EdgeMind panel: flat, hairline-bordered, no shadow. Hierarchy
+ * comes from the surface ladder and the border, never from elevation.
  */
 @Composable
 fun EdgeCard(
@@ -175,40 +141,69 @@ fun EdgeCard(
         modifier = modifier,
         shape = shape,
         color = containerColor,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
-        tonalElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(contentPadding), content = content)
     }
 }
 
 /**
- * Quieter secondary surface: status summaries, metadata sections — clearly
- * one step below [EdgeCard] in the visual hierarchy.
- * Uses surfaceVariant for clear separation.
+ * Inset panel one step below [EdgeCard]: summaries, metadata blocks, rows
+ * inside a list. Tinted fill, no border, tighter corners.
  */
 @Composable
 fun EdgeCardSecondary(
     modifier: Modifier = Modifier,
-    shape: RoundedCornerShape = RoundedCornerShape(16.dp),
+    shape: RoundedCornerShape = RoundedCornerShape(12.dp),
     containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    contentPadding: PaddingValues = PaddingValues(EdgeDimens.spacingM),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
         modifier = modifier,
         shape = shape,
         color = containerColor,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        tonalElevation = 1.dp,
     ) {
         Column(modifier = Modifier.padding(contentPadding), content = content)
     }
 }
 
-// ── Chips / pills ──────────────────────────────────────────────────────────
+/**
+ * A run of rows inside one panel, split by hairlines — used instead of a
+ * stack of separate cards so lists read as one instrument, not a card pile.
+ */
+@Composable
+fun <T> EdgeListGroup(
+    items: List<T>,
+    modifier: Modifier = Modifier,
+    row: @Composable (T) -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(EdgeDimens.cardRadius),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column {
+            items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = EdgeDimens.spacingL)
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant),
+                    )
+                }
+                row(item)
+            }
+        }
+    }
+}
 
-/** Small rounded status pill with a leading dot. */
+// ── Chips / buttons ────────────────────────────────────────────────────────
+
+/** Small status chip with an optional leading dot. Square-ish, not a pill. */
 @Composable
 fun StatusChip(
     text: String,
@@ -219,16 +214,16 @@ fun StatusChip(
 ) {
     Row(
         modifier = modifier
-            .background(containerColor, RoundedCornerShape(50))
-            .padding(horizontal = EdgeDimens.spacingM, vertical = 6.dp),
+            .background(containerColor, RoundedCornerShape(EdgeDimens.chipRadius))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingXs + 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (showDot) {
             Box(
                 Modifier
                     .size(6.dp)
-                    .background(color.copy(alpha = 0.85f), CircleShape),
+                    .background(color, CircleShape),
             )
         }
         Text(
@@ -241,7 +236,7 @@ fun StatusChip(
     }
 }
 
-/** Filled pill button — the primary rounded action. */
+/** Primary action: filled iris, 48dp tall, softly squared corners. */
 @Composable
 fun PillButton(
     text: String,
@@ -251,29 +246,31 @@ fun PillButton(
     icon: ImageVector? = null,
     containerColor: Color = MaterialTheme.colorScheme.primary,
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
+    border: BorderStroke? = null,
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minHeight = EdgeDimens.minTouch),
         onClick = onClick,
         enabled = enabled,
         shape = RoundedCornerShape(EdgeDimens.pillRadius),
         color = if (enabled) containerColor else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if (enabled) contentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        border = border,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = EdgeDimens.spacingXl, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+            horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS, Alignment.CenterHorizontally),
         ) {
             if (icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             }
-            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
-/** Tonal pill for secondary actions. */
+/** Secondary action: panel-colored with a control border. */
 @Composable
 fun TonalPill(
     text: String,
@@ -288,263 +285,50 @@ fun TonalPill(
         modifier = modifier,
         enabled = enabled,
         icon = icon,
-        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        border = if (enabled) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
     )
-}
-
-/** Circular icon pill (e.g. the send button). */
-@Composable
-fun IconPill(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    tint: Color = MaterialTheme.colorScheme.onPrimary,
-    containerColor: Color = MaterialTheme.colorScheme.primary,
-) {
-    Surface(
-        modifier = modifier,
-        onClick = onClick,
-        enabled = enabled,
-        shape = CircleShape,
-        color = if (enabled) containerColor else MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = if (enabled) tint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-    ) {
-        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
-        }
-    }
-}
-
-// ── Ask / Memory segmented mode switch ─────────────────────────────────────
-
-enum class EdgeMode(val label: String) {
-    ASK("Ask"),
-    MEMORY("Memory"),
-}
-
-@Composable
-fun ModeSwitch(
-    selected: EdgeMode,
-    onSelect: (EdgeMode) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(EdgeDimens.pillRadius))
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        EdgeMode.entries.forEach { mode ->
-            val isSelected = mode == selected
-            Box(
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 38.dp)
-                    .then(
-                        if (isSelected) {
-                            Modifier
-                                .shadow(2.dp, RoundedCornerShape(EdgeDimens.pillRadius))
-                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(EdgeDimens.pillRadius))
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(EdgeDimens.pillRadius))
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .semantics {
-                        this.contentDescription = mode.label
-                        this.selected = isSelected
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { onSelect(mode) },
-                    )
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = mode.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        }
-    }
-}
-
-// ── Top bar ────────────────────────────────────────────────────────────────
-
-/**
- * Lightweight floating header:
- *
- *   [theme]            [ Ask | Memory ]            [settings]
- *              [ EDGE READY / OFFLINE ]
- *
- * Three separate floating controls — NOT one giant capsule — with a small
- * subordinate connectivity chip beneath the centered switch. Every control
- * carries its own subtle surface so it reads in both themes.
- */
-@Composable
-fun EdgeTopBar(
-    darkTheme: Boolean,
-    onToggleTheme: () -> Unit,
-    mode: EdgeMode,
-    onModeChange: (EdgeMode) -> Unit,
-    onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-    online: Boolean = true,
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = EdgeDimens.spacingM, vertical = EdgeDimens.spacingS),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                FloatingIconButton(
-                    onClick = onToggleTheme,
-                    imageVector = if (darkTheme) SunIcon else MoonIcon,
-                    contentDescription = if (darkTheme) {
-                        "Switch to light appearance"
-                    } else {
-                        "Switch to dark appearance"
-                    },
-                )
-                FloatingIconButton(
-                    onClick = onOpenSettings,
-                    imageVector = SettingsIcon,
-                    contentDescription = "Settings",
-                )
-            }
-            ModeSwitch(
-                selected = mode,
-                onSelect = onModeChange,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-        EdgeStatusChip(online = online, modifier = Modifier.padding(top = 2.dp))
-    }
-}
-
-/**
- * Tiny subordinate status chip under the header controls. Driven ONLY by the
- * real connectivity StateFlow — never faked. Green dot + "EDGE READY" while
- * online, amber dot + "OFFLINE" otherwise, matching the app's semantic
- * accent language (amber already means offline/local in the Ask hints).
- */
-@Composable
-fun EdgeStatusChip(online: Boolean, modifier: Modifier = Modifier) {
-    val edgeColors = LocalEdgeColors.current
-    val label: String
-    val color: Color
-    val container: Color
-    if (online) {
-        label = "EDGE READY"
-        color = edgeColors.positive
-        container = edgeColors.positiveContainer.copy(alpha = 0.85f)
-    } else {
-        label = "OFFLINE"
-        color = MaterialTheme.colorScheme.tertiary
-        container = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
-    }
-    Row(
-        modifier = modifier
-            .semantics { contentDescription = if (online) "Edge ready, online" else "Offline" }
-            .background(container, RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Box(
-            Modifier
-                .size(5.dp)
-                .background(color.copy(alpha = 0.9f), CircleShape),
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            letterSpacing = 0.8.sp,
-            color = color,
-        )
-    }
-}
-
-/**
- * Circular floating icon control: distinct surface + hairline border +
- * gentle shadow so it stays clearly visible over the ambient background in
- * BOTH light and dark themes.
- */
-@Composable
-private fun FloatingIconButton(
-    onClick: () -> Unit,
-    imageVector: ImageVector,
-    contentDescription: String,
-) {
-    val container = MaterialTheme.colorScheme.surfaceVariant
-    val tint = MaterialTheme.colorScheme.onSurface
-    Surface(
-        modifier = Modifier
-            .size(EdgeDimens.minTouch)
-            .shadow(2.dp, CircleShape),
-        onClick = onClick,
-        shape = CircleShape,
-        color = container,
-        contentColor = tint,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-        tonalElevation = 2.dp,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = imageVector,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
 }
 
 // ── Section header ─────────────────────────────────────────────────────────
 
+/**
+ * Section heading: a plain title with optional one-line context and an
+ * optional trailing action (e.g. "See all"). No eyebrow, no caps.
+ */
 @Composable
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    trailing: @Composable (() -> Unit)? = null,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-        if (subtitle != null) {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+        trailing?.invoke()
     }
 }
 
-/** Uppercase technical label used for provenance / status lines. */
+/**
+ * Small supporting label (provenance, record type, section context). Sentence
+ * case as written by the caller; never forced to capitals.
+ */
 @Composable
-fun TechLabel(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+fun TechLabel(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
         color = color,
-        letterSpacing = 0.8.sp,
         modifier = modifier,
     )
 }

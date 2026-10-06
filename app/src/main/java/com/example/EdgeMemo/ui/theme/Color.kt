@@ -2,96 +2,97 @@ package com.example.EdgeMemo.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── Light theme ────────────────────────────────────────────────────────────
-// Soft cool-white base with lavender-blue-gray surfaces (reference language)
-// and a calm indigo-blue accent. Deliberately low saturation.
+// EdgeMind palette — "control room on night shift".
+// Borrowed from high-performance HMI practice (ISA-101): greys carry the
+// structure, and saturated color only ever means state. Iris is reserved for
+// things you can act on; amber/red/green/violet are status, never decoration.
 
-val LightBackground = Color(0xFFF1F4FA)
+// ── Dark (primary identity) ────────────────────────────────────────────────
+
+val DarkBackground = Color(0xFF15171D) // ink: graphite with a cold cast
+val DarkSurface = Color(0xFF1C1F27) // panel
+val DarkSurfaceVariant = Color(0xFF232731) // inset / secondary panel
+val DarkSurfaceHigh = Color(0xFF2B303B) // raised: inputs, selected rows
+val DarkOutline = Color(0xFF3A404D) // control borders
+val DarkOutlineVariant = Color(0xFF2C313C) // panel hairlines
+val DarkOnSurface = Color(0xFFECEEF2)
+val DarkOnSurfaceVariant = Color(0xFFA0A6B4)
+
+val DarkPrimary = Color(0xFF9EA7FF) // iris
+val DarkOnPrimary = Color(0xFF151838)
+val DarkPrimaryContainer = Color(0xFF2B3062)
+val DarkOnPrimaryContainer = Color(0xFFDEE1FF)
+
+val DarkSecondary = Color(0xFFB9BFCC)
+val DarkOnSecondary = Color(0xFF1C1F27)
+val DarkSecondaryContainer = Color(0xFF2E3340)
+val DarkOnSecondaryContainer = Color(0xFFE3E6EE)
+
+val DarkTertiary = Color(0xFFF0B44C) // amber
+val DarkOnTertiary = Color(0xFF2E1F00)
+val DarkTertiaryContainer = Color(0xFF3B2D12)
+val DarkOnTertiaryContainer = Color(0xFFFBDDA6)
+
+val DarkError = Color(0xFFFF7B72)
+val DarkOnError = Color(0xFF3A0B07)
+val DarkErrorContainer = Color(0xFF45201D)
+val DarkOnErrorContainer = Color(0xFFFFD4CF)
+
+val DarkPositive = Color(0xFF5CCB9A)
+val DarkPositiveContainer = Color(0xFF173428)
+
+val DarkCodeSurface = Color(0xFF111318)
+val DarkCodeText = Color(0xFFD5D9E3)
+
+// ── Light ──────────────────────────────────────────────────────────────────
+
+val LightBackground = Color(0xFFF3F4F7)
 val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = Color(0xFFF2F4FA)
-val LightSurfaceHigh = Color(0xFFE6EAF4)
-val LightOutline = Color(0xFFD8DEEC)
-val LightOnSurface = Color(0xFF1B2233)
-val LightOnSurfaceVariant = Color(0xFF5A6478)
+val LightSurfaceVariant = Color(0xFFF0F1F5)
+val LightSurfaceHigh = Color(0xFFE6E8EE)
+val LightOutline = Color(0xFFC9CDD7)
+val LightOutlineVariant = Color(0xFFE0E3EA)
+val LightOnSurface = Color(0xFF171A21)
+val LightOnSurfaceVariant = Color(0xFF5B6273)
 
-val LightPrimary = Color(0xFF4F70E2)
+val LightPrimary = Color(0xFF4A53D6)
 val LightOnPrimary = Color(0xFFFFFFFF)
-val LightPrimaryContainer = Color(0xFFDEE5FB)
-val LightOnPrimaryContainer = Color(0xFF24356E)
+val LightPrimaryContainer = Color(0xFFE3E5FF)
+val LightOnPrimaryContainer = Color(0xFF1E2370)
 
-val LightSecondary = Color(0xFF7A5FD0)
+val LightSecondary = Color(0xFF4B5263)
 val LightOnSecondary = Color(0xFFFFFFFF)
-val LightSecondaryContainer = Color(0xFFE9E3FA)
-val LightOnSecondaryContainer = Color(0xFF3C2E6B)
+val LightSecondaryContainer = Color(0xFFE6E8EE)
+val LightOnSecondaryContainer = Color(0xFF232733)
 
-val LightTertiary = Color(0xFFA57834)
+val LightTertiary = Color(0xFF9A6200)
 val LightOnTertiary = Color(0xFFFFFFFF)
-val LightTertiaryContainer = Color(0xFFF6EAD4)
-val LightOnTertiaryContainer = Color(0xFF4E3A16)
+val LightTertiaryContainer = Color(0xFFFCEFD6)
+val LightOnTertiaryContainer = Color(0xFF4A2F00)
 
-val LightError = Color(0xFFB8433A)
+val LightError = Color(0xFFC2382E)
 val LightOnError = Color(0xFFFFFFFF)
-val LightErrorContainer = Color(0xFFF9DFDD)
+val LightErrorContainer = Color(0xFFFCE3E0)
+val LightOnErrorContainer = Color(0xFF5C120C)
 
-val LightPositive = Color(0xFF2E7D5B)
-val LightPositiveContainer = Color(0xFFDDF1E7)
+val LightPositive = Color(0xFF1F8A5B)
+val LightPositiveContainer = Color(0xFFDDF2E7)
 
-val LightCodeSurface = Color(0xFFF4F5FA)
-val LightCodeText = Color(0xFF323A4E)
+val LightCodeSurface = Color(0xFFF0F1F5)
+val LightCodeText = Color(0xFF2A2F3B)
 
-// ── Dark theme ─────────────────────────────────────────────────────────────
-// A deliberate dark treatment (not an inversion): near-black charcoal with
-// muted purple/blue tints, matching EdgeMind's engineering-tool identity.
-// Surface hierarchy improved for better contrast: Background < Surface < SurfaceVariant < SurfaceHigh
+// ── Status accents (policy / provenance) ──────────────────────────────────
+// blue = cloud / sync, violet = redacted, amber = local-only / queued.
 
-val DarkBackground = Color(0xFF0D1017)
-val DarkSurface = Color(0xFF1A1F2E)
-val DarkSurfaceVariant = Color(0xFF222838)
-val DarkSurfaceHigh = Color(0xFF2D3448)
-val DarkOutline = Color(0xFF3A4258)
-val DarkOnSurface = Color(0xFFE7EBF5)
-val DarkOnSurfaceVariant = Color(0xFF9AA5BC)
+val AccentBlue = Color(0xFF3D73D9)
+val AccentBlueDark = Color(0xFF7FB0FF)
+val AccentViolet = Color(0xFF7347D0)
+val AccentVioletDark = Color(0xFFC3A6FF)
+val AccentAmber = Color(0xFF9A6200)
+val AccentAmberDark = Color(0xFFF0B44C)
 
-val DarkPrimary = Color(0xFFA8B6F4)
-val DarkOnPrimary = Color(0xFF1B2753)
-val DarkPrimaryContainer = Color(0xFF2C3A6E)
-val DarkOnPrimaryContainer = Color(0xFFDDE4FC)
-
-val DarkSecondary = Color(0xFFC0B0EC)
-val DarkOnSecondary = Color(0xFF2E215C)
-val DarkSecondaryContainer = Color(0xFF4A3B80)
-val DarkOnSecondaryContainer = Color(0xFFEAE4FB)
-
-val DarkTertiary = Color(0xFFE2B77E)
-val DarkOnTertiary = Color(0xFF3F2E10)
-val DarkTertiaryContainer = Color(0xFF57421C)
-val DarkOnTertiaryContainer = Color(0xFFF8E9CF)
-
-val DarkError = Color(0xFFF08C82)
-val DarkOnError = Color(0xFF3D1410)
-val DarkErrorContainer = Color(0xFF55241F)
-
-val DarkPositive = Color(0xFF7CC9A5)
-val DarkPositiveContainer = Color(0xFF1E3A2E)
-
-val DarkCodeSurface = Color(0xFF1A2030)
-val DarkCodeText = Color(0xFFD6DCEA)
-
-// ── Shared semantic accents (used by provenance / policy chips) ───────────
-// EdgeMind: blue = sync/cloud, violet = redacted, amber = local-only.
-
-val AccentBlue = Color(0xFF4F70E2)
-val AccentBlueDark = Color(0xFFA8B6F4)
-val AccentViolet = Color(0xFF7A5FD0)
-val AccentVioletDark = Color(0xFFC0B0EC)
-val AccentAmber = Color(0xFFA57834)
-val AccentAmberDark = Color(0xFFE2B77E)
-
-// ── Aurora ambient background fields ──────────────────────────────────────
-// Soft daylight-through-frosted-glass tones (light) and a deep, atmospheric
-// night composition (dark). Each field is a large, heavily feathered radial
-// field drawn at low alpha over the theme base color. Almost flat at first
-// glance; the atmosphere becomes visible on closer look.
+// ── Ambient glow ───────────────────────────────────────────────────────────
+// One restrained iris wash behind the header, nothing else.
 
 data class AuroraField(
     val color: Color,
@@ -101,17 +102,10 @@ data class AuroraField(
 )
 
 val LightAuroraFields = listOf(
-    AuroraField(Color(0xFFBBD2F2).copy(alpha = 0.42f), 0.10f, 0.02f, 1.15f), // soft blue, top-left
-    AuroraField(Color(0xFFD8D0F5).copy(alpha = 0.36f), 0.94f, 0.16f, 1.00f), // lavender / periwinkle
-    AuroraField(Color(0xFFF1DAE6).copy(alpha = 0.30f), 0.80f, 0.55f, 0.90f), // subtle pink / lilac
-    AuroraField(Color(0xFFC9E2EF).copy(alpha = 0.28f), 0.22f, 0.60f, 0.95f), // pale cool cyan
-    AuroraField(Color(0xFFE7EAF8).copy(alpha = 0.55f), 0.45f, 1.02f, 1.05f), // cool-white lift, bottom
+    AuroraField(Color(0xFFDADDFB).copy(alpha = 0.55f), 0.0f, -0.04f, 1.1f),
 )
 
 val DarkAuroraFields = listOf(
-    AuroraField(Color(0xFF2B3866).copy(alpha = 0.50f), 0.12f, 0.04f, 1.15f), // deep indigo
-    AuroraField(Color(0xFF322A58).copy(alpha = 0.38f), 0.92f, 0.24f, 1.00f), // muted violet
-    AuroraField(Color(0xFF1B3053).copy(alpha = 0.38f), 0.22f, 0.88f, 1.05f), // soft deep blue
-    AuroraField(Color(0xFF3A2244).copy(alpha = 0.26f), 0.74f, 0.68f, 0.85f), // restrained magenta / lilac
-    AuroraField(Color(0xFF161B2B).copy(alpha = 0.45f), 0.50f, 1.02f, 1.00f), // bottom depth wash
+    AuroraField(Color(0xFF2E3466).copy(alpha = 0.45f), 0.0f, -0.04f, 1.1f),
+    AuroraField(Color(0xFF2A2340).copy(alpha = 0.30f), 1.0f, 0.02f, 0.8f),
 )

@@ -11,6 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,7 +45,7 @@ import com.example.EdgeMemo.presentation.components.EdgeUiTags
 import com.example.EdgeMemo.presentation.components.MachinesIcon
 import com.example.EdgeMemo.presentation.components.SettingsIcon
 import com.example.EdgeMemo.presentation.components.SyncIcon
-import com.example.EdgeMemo.presentation.components.TechLabel
+import com.example.EdgeMemo.presentation.components.BackIcon
 import com.example.EdgeMemo.presentation.dashboard.DashboardScreen
 import com.example.EdgeMemo.presentation.dashboard.DashboardViewModel
 import com.example.EdgeMemo.presentation.memory.MemoryScreen
@@ -78,10 +85,16 @@ fun EdgeMindShell(
         shellViewModel.back()
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // Transparent so the ambient glow drawn behind the shell shows through.
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
         Column(Modifier.fillMaxSize()) {
             ShellHeader(
                 shellState = shellState,
+                title = shellViewModel.navigator.currentTab?.takeIf { isRootTab }?.title,
                 showBack = !isRootTab,
                 onBack = { shellViewModel.back() },
             )
@@ -188,52 +201,76 @@ private val EdgeTab.label: String
         EdgeTab.SETTINGS -> "Settings"
     }
 
+/** Large header title per root tab (the tab bar keeps the short labels). */
+private val EdgeTab.title: String
+    get() = when (this) {
+        EdgeTab.DASHBOARD -> "Overview"
+        EdgeTab.MACHINES -> "Machines"
+        EdgeTab.ASK -> "Ask"
+        EdgeTab.SYNC -> "Sync"
+        EdgeTab.SETTINGS -> "Settings"
+    }
+
 @Composable
-private fun ShellHeader(shellState: ShellUiState, showBack: Boolean, onBack: () -> Unit) {
-    Column(
+private fun ShellHeader(shellState: ShellUiState, title: String?, showBack: Boolean, onBack: () -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = EdgeLayout.screenPadding, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .heightIn(min = 60.dp)
+            .padding(start = if (showBack) 6.dp else EdgeLayout.screenPadding, end = EdgeLayout.screenPadding),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (showBack) {
+        if (showBack) {
+            Row(
+                modifier = Modifier
+                    .testTag("edge-shell-back")
+                    .clip(RoundedCornerShape(10.dp))
+                    .semantics { contentDescription = "Back" }
+                    .clickable(onClick = onBack)
+                    .heightIn(min = EdgeLayout.minTarget)
+                    .padding(start = 6.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(BackIcon, contentDescription = null, modifier = Modifier.size(22.dp))
                 Text(
-                    text = "← Back",
+                    text = "Back",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .testTag("edge-shell-back")
-                        .semantics { contentDescription = "Back" }
-                        .clickable(onClick = onBack)
-                        .padding(end = EdgeLayout.cardGap, start = 2.dp, top = 8.dp, bottom = 8.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-            } else {
-                TechLabel(text = "EdgeMind")
             }
-            Spacer(Modifier.weight(1f))
-            EdgeStatusBadge(
-                status = if (shellState.isOnline) EdgeStatus.HEALTHY else EdgeStatus.OFFLINE,
-                label = if (shellState.isOnline) "Online" else "Offline",
-                modifier = Modifier.testTag(EdgeUiTags.CONNECTION_BADGE),
-            )
-            Spacer(Modifier.padding(horizontal = 4.dp))
-            EdgeStatusBadge(
-                status = when (shellState.syncUi) {
-                    ShellSyncUi.SYNCING -> EdgeStatus.SYNCING
-                    ShellSyncUi.PENDING -> EdgeStatus.WARNING
-                    ShellSyncUi.SYNCED -> EdgeStatus.SYNCED
-                    ShellSyncUi.ATTENTION -> EdgeStatus.CRITICAL
-                    ShellSyncUi.NO_OPERATIONS -> EdgeStatus.NEUTRAL
-                },
-                label = when (shellState.syncUi) {
-                    ShellSyncUi.NO_OPERATIONS -> "no sync"
-                    else -> shellState.syncUi.name.lowercase().replace('_', ' ')
-                },
-                modifier = Modifier.testTag(EdgeUiTags.SYNC_BADGE),
+        } else if (title != null) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
+        Spacer(Modifier.weight(1f))
+        EdgeStatusBadge(
+            status = if (shellState.isOnline) EdgeStatus.HEALTHY else EdgeStatus.OFFLINE,
+            label = if (shellState.isOnline) "Online" else "Offline",
+            modifier = Modifier.testTag(EdgeUiTags.CONNECTION_BADGE),
+        )
+        Spacer(Modifier.width(6.dp))
+        EdgeStatusBadge(
+            status = when (shellState.syncUi) {
+                ShellSyncUi.SYNCING -> EdgeStatus.SYNCING
+                ShellSyncUi.PENDING -> EdgeStatus.WARNING
+                ShellSyncUi.SYNCED -> EdgeStatus.SYNCED
+                ShellSyncUi.ATTENTION -> EdgeStatus.CRITICAL
+                ShellSyncUi.NO_OPERATIONS -> EdgeStatus.NEUTRAL
+            },
+            label = when (shellState.syncUi) {
+                ShellSyncUi.SYNCING -> "Syncing"
+                ShellSyncUi.PENDING -> "Queued"
+                ShellSyncUi.SYNCED -> "Synced"
+                ShellSyncUi.ATTENTION -> "Sync failed"
+                ShellSyncUi.NO_OPERATIONS -> "Sync idle"
+            },
+            modifier = Modifier.testTag(EdgeUiTags.SYNC_BADGE),
+        )
     }
 }
 

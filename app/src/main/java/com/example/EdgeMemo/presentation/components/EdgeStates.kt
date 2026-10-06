@@ -88,17 +88,13 @@ fun EdgeEmptyState(
         modifier = modifier
             .fillMaxWidth()
             .testTag(EdgeUiTags.EMPTY)
-            .padding(vertical = 48.dp, horizontal = EdgeLayout.screenPadding),
+            .padding(vertical = 40.dp, horizontal = EdgeLayout.screenPadding),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
         ) {
-            TechLabel(
-                text = "NO LOCAL DATA",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Text(
                 text = title,
                 style = EdgeType.sectionTitle,
@@ -110,7 +106,7 @@ fun EdgeEmptyState(
                 style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = EdgeLayout.compactGap),
+                modifier = Modifier.padding(top = EdgeLayout.compactGap, bottom = EdgeLayout.cardGap),
             )
             action?.invoke()
         }
@@ -133,9 +129,10 @@ fun EdgeErrorState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
     ) {
-        TechLabel(
-            text = "LOCAL READ FAILED",
-            color = MaterialTheme.colorScheme.error,
+        Text(
+            text = "Couldn't read local memory",
+            style = EdgeType.sectionTitle,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text = message,
@@ -145,7 +142,7 @@ fun EdgeErrorState(
         )
         if (onRetry != null) {
             TonalPill(
-                text = "Retry",
+                text = "Try again",
                 onClick = onRetry,
                 modifier = Modifier.testTag(EdgeUiTags.RETRY),
             )
@@ -165,8 +162,6 @@ fun EdgePhasePlaceholder(
         contentAlignment = Alignment.Center,
     ) {
         EdgeCard(modifier = Modifier.fillMaxWidth()) {
-            TechLabel(text = "NEXT PHASE")
-            EdgeSpacer(height = EdgeLayout.cardGap)
             Text(feature, style = EdgeType.sectionTitle)
             EdgeSpacer(height = EdgeLayout.compactGap)
             Text(

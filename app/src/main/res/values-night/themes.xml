@@ -4,7 +4,7 @@
     <!-- System-dark launch window background; prevents a white flash when the
          OS is in dark mode before Compose takes over. -->
     <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#0D1017</item>
+        <item name="android:windowBackground">#15171D</item>
     </style>
 
 </resources>

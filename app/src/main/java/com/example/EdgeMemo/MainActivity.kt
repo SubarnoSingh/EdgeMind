@@ -34,9 +34,9 @@ class MainActivity : ComponentActivity() {
         // versa). The theme resource fallback only covers the system night
         // mode; this covers the in-app toggle too.
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val initialDark = prefs.getBoolean(KEY_DARK_THEME, false)
+        val initialDark = prefs.getBoolean(KEY_DARK_THEME, true)
         window.setBackgroundDrawable(
-            ColorDrawable(if (initialDark) 0xFF0D1017.toInt() else 0xFFF1F4FA.toInt()),
+            ColorDrawable(if (initialDark) 0xFF15171D.toInt() else 0xFFF3F4F7.toInt()),
         )
         val container = (application as EdgeMindApplication).container
         container.onAppForeground()
@@ -90,7 +90,7 @@ private fun EdgeMindRoot(container: com.example.EdgeMemo.di.AppContainer) {
 
     val themeState = remember {
         ThemeState(
-            initialDark = prefs.getBoolean(KEY_DARK_THEME, false),
+            initialDark = prefs.getBoolean(KEY_DARK_THEME, true),
             onToggle = { prefs.edit().putBoolean(KEY_DARK_THEME, it.darkTheme).apply() },
         )
     }
