@@ -212,7 +212,7 @@ class MemoryViewModel(
             } catch (e: EdgeError.CloudUnavailable) {
                 _uiState.update { it.copy(pullStatus = CloudPullStatus.Unavailable) }
             } catch (e: EdgeError) {
-                _uiState.update { it.copy(pullStatus = CloudPullStatus.Failed(e.message ?: "cloud pull failed")) }
+                _uiState.update { it.copy(pullStatus = CloudPullStatus.Failed(e.message ?: "couldn't reach the cloud")) }
             } finally {
                 _uiState.update { it.copy(isBusy = false) }
             }

@@ -2,11 +2,14 @@ package com.example.EdgeMemo.presentation.memory
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,13 +29,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -49,6 +51,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +65,6 @@ import com.example.EdgeMemo.core.model.MemoryType
 import com.example.EdgeMemo.core.model.SyncDecision
 import com.example.EdgeMemo.core.policy.PolicyDecision
 import com.example.EdgeMemo.core.sync.SyncSummary
-import com.example.EdgeMemo.domain.cloud.CloudPullResult
 import com.example.EdgeMemo.domain.conflict.Conflict
 import com.example.EdgeMemo.domain.conflict.ConflictResolutionAction
 import com.example.EdgeMemo.domain.document.DocumentIngestionService
@@ -67,16 +72,23 @@ import com.example.EdgeMemo.domain.document.IngestionStage
 import com.example.EdgeMemo.presentation.components.EdgeCard
 import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
 import com.example.EdgeMemo.presentation.components.EdgeDimens
+import com.example.EdgeMemo.presentation.components.EdgeEmptyState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.PillButton
 import com.example.EdgeMemo.presentation.components.SectionHeader
 import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
 import com.example.EdgeMemo.presentation.components.TonalPill
+import com.example.EdgeMemo.presentation.components.relativeTimeLabel
+import com.example.EdgeMemo.ui.theme.EdgeLayout
+import com.example.EdgeMemo.ui.theme.EdgeStatus
+import com.example.EdgeMemo.ui.theme.EdgeType
 import com.example.EdgeMemo.ui.theme.LocalEdgeColors
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Records browser (pushed route). The shell draws Back; this screen titles itself. */
 @Composable
 fun MemoryScreen(viewModel: MemoryViewModel) {
     val state by viewModel.uiState.collectAsState()
@@ -87,8 +99,7 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
     // reloads from its own actions. Mutations from other paths (explicit
     // "Save to memory" on the Ask screen, cloud answers cached, conflict
     // resolution) write through the repository without notifying it, so the
-    // list refreshes every time this screen becomes visible (tab switch /
-    // returning from Settings). No polling, no recreation, no extra writes.
+    // list refreshes every time this screen becomes visible.
     LaunchedEffect(Unit) {
         viewModel.refresh()
     }
@@ -98,17 +109,15 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
         onResult = viewModel::onDocumentPicked,
     )
     val launchImport = {
-        importLauncher.launch(
-            arrayOf("application/pdf", "text/plain", "text/markdown"),
-        )
+        importLauncher.launch(arrayOf("application/pdf", "text/plain", "text/markdown"))
     }
 
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = EdgeDimens.spacingL),
-            verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+                .padding(horizontal = EdgeLayout.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingM),
         ) {
             HeaderRow(state)
             SearchBar(
@@ -118,7 +127,7 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
                 onClear = viewModel::clearSearch,
                 searchActive = state.searchActive,
             )
-            ActionPills(
+            ActionRow(
                 captureOpen = captureOpen,
                 onToggleCapture = { captureOpen = !captureOpen },
                 onImport = launchImport,
@@ -137,34 +146,20 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
                 .fillMaxWidth()
                 .imePadding(),
             contentPadding = PaddingValues(
-                start = EdgeDimens.spacingL,
-                end = EdgeDimens.spacingL,
-                top = EdgeDimens.spacingS,
+                start = EdgeLayout.screenPadding,
+                end = EdgeLayout.screenPadding,
+                top = EdgeDimens.spacingL,
                 bottom = 96.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+            verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
         ) {
             state.error?.let { error ->
                 item {
-                    EdgeCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = "ERROR",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                Text(
-                                    text = "${error::class.simpleName}: ${error.message}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                            TextButton(onClick = viewModel::consumeError) {
-                                Text("Dismiss")
-                            }
-                        }
-                    }
+                    NoticeRow(
+                        text = error.message ?: "That didn't work. Try again.",
+                        color = MaterialTheme.colorScheme.error,
+                        onDismiss = viewModel::consumeError,
+                    )
                 }
             }
 
@@ -181,6 +176,7 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
                         onTypeChange = viewModel::onTypeChange,
                         onUserSyncChoiceChange = viewModel::onUserSyncChoiceChange,
                         onSave = viewModel::create,
+                        onCancel = { captureOpen = false },
                     )
                 }
             }
@@ -190,44 +186,68 @@ fun MemoryScreen(viewModel: MemoryViewModel) {
             }
 
             if (state.pullStatus !is CloudPullStatus.Idle) {
-                item { PullStatusCard(state.pullStatus) }
-            }
-
-            if (state.conflictsVisible && (state.conflicts.isNotEmpty() || state.unresolvedConflictCount > 0)) {
                 item {
-                    ConflictsCard(
-                        conflicts = state.conflicts,
-                        onResolve = viewModel::resolve,
+                    NoticeRow(
+                        text = cloudPullSummary(state.pullStatus),
+                        color = if (state.pullStatus is CloudPullStatus.Failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                     )
                 }
             }
 
-            item { SyncStatusCard(state.syncSummary) }
+            if (state.conflictsVisible && (state.conflicts.isNotEmpty() || state.unresolvedConflictCount > 0)) {
+                item { ConflictsSection(conflicts = state.conflicts, onResolve = viewModel::resolve) }
+            }
+
+            item { SyncSummaryRow(state.syncSummary) }
 
             item {
-                ListHeader(
-                    searchActive = state.searchActive,
-                    itemCount = state.items.size,
-                    memoryCount = state.memoryCount,
+                SectionHeader(
+                    title = if (state.searchActive) {
+                        "${state.items.size} ${if (state.items.size == 1) "match" else "matches"}"
+                    } else {
+                        "All records"
+                    },
+                    modifier = Modifier.padding(top = EdgeDimens.spacingM),
                 )
             }
 
             if (state.items.isEmpty()) {
-                item { EmptyState(searchActive = state.searchActive) { captureOpen = true } }
-            }
-
-            items(state.items.size, key = { state.items[it].memoryId }) { index ->
-                val memory = state.items[index]
-                val score = state.results.firstOrNull { it.memory.memoryId == memory.memoryId }?.score
-                MemoryCard(
-                    memory = memory,
-                    score = score,
-                    expanded = expandedMemories[memory.memoryId] == true,
-                    onToggle = {
-                        expandedMemories[memory.memoryId] = expandedMemories[memory.memoryId] != true
-                    },
-                    onDelete = { viewModel.delete(memory.memoryId) },
-                )
+                item {
+                    if (state.searchActive) {
+                        EdgeEmptyState(
+                            title = "No matching records",
+                            message = "Try other words, or clear the search.",
+                            action = { TonalPill(text = "Clear search", onClick = viewModel::clearSearch) },
+                        )
+                    } else {
+                        EdgeEmptyState(
+                            title = "No records yet",
+                            message = "Add a record or import a manual to get started.",
+                            action = { PillButton(text = "New record", onClick = { captureOpen = true }) },
+                        )
+                    }
+                }
+            } else {
+                // ponytail: one non-lazy group for the whole list; split into
+                // per-row lazy items with shaped ends if record counts reach the thousands.
+                item {
+                    EdgeListGroup(state.items) { memory ->
+                        val score = state.results.firstOrNull { it.memory.memoryId == memory.memoryId }?.score
+                        RecordRow(
+                            memory = memory,
+                            score = score,
+                            expanded = expandedMemories[memory.memoryId] == true,
+                            onToggle = {
+                                expandedMemories[memory.memoryId] = expandedMemories[memory.memoryId] != true
+                            },
+                            onDelete = { viewModel.delete(memory.memoryId) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -238,18 +258,13 @@ private fun HeaderRow(state: MemoryUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = EdgeDimens.spacingS),
+            .padding(top = EdgeDimens.spacingXs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Records", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
             Text(
-                text = "Memory",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "${state.memoryCount} memories \u00b7 on this device",
+                text = "${state.memoryCount} on this device",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -274,23 +289,21 @@ private fun SearchBar(
         modifier = Modifier.fillMaxWidth(),
         placeholder = {
             Text(
-                "Search memory\u2026",
+                "Search records, tags or part numbers",
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         leadingIcon = {
-            androidx.compose.material3.Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         },
         trailingIcon = {
-            if (searchActive) {
-                androidx.compose.material3.IconButton(onClick = onClear) {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Filled.Clear,
+            if (searchActive || query.isNotEmpty()) {
+                IconButton(onClick = onClear) {
+                    Icon(
+                        Icons.Filled.Clear,
                         contentDescription = "Clear search",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -302,8 +315,8 @@ private fun SearchBar(
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
         shape = RoundedCornerShape(EdgeDimens.inputRadius),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
             focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
         ),
@@ -311,7 +324,7 @@ private fun SearchBar(
 }
 
 @Composable
-private fun ActionPills(
+private fun ActionRow(
     captureOpen: Boolean,
     onToggleCapture: () -> Unit,
     onImport: () -> Unit,
@@ -333,29 +346,17 @@ private fun ActionPills(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
         ) {
-            TonalPill(
-                text = if (captureOpen) "Close capture" else "Capture",
-                onClick = onToggleCapture,
-                icon = if (captureOpen) Icons.Filled.Clear else Icons.Filled.Add,
-            )
-            if (importEnabled) {
-                TonalPill(
-                    text = "Import document",
-                    onClick = onImport,
-                )
+            if (captureOpen) {
+                TonalPill(text = "Close form", onClick = onToggleCapture)
             } else {
-                TonalPill(
-                    text = "Importing\u2026",
-                    onClick = { },
-                    enabled = false,
-                )
+                PillButton(text = "New record", onClick = onToggleCapture)
             }
             TonalPill(
-                text = "Pull cloud",
-                onClick = onPullCloud,
-                icon = Icons.Filled.Refresh,
-                enabled = !pullBusy,
+                text = if (importEnabled) "Import file" else "Importing",
+                onClick = onImport,
+                enabled = importEnabled,
             )
+            TonalPill(text = "Pull from cloud", onClick = onPullCloud, enabled = !pullBusy)
             if (unresolvedConflicts > 0 || conflictsVisible) {
                 TonalPill(
                     text = if (conflictsVisible) "Hide conflicts" else "Conflicts ($unresolvedConflicts)",
@@ -363,22 +364,31 @@ private fun ActionPills(
                 )
             }
         }
-        // Trailing scrim: signals the row scrolls when more actions exist.
-        // Non-clickable, so taps pass through to the pills underneath.
+        // Trailing fade: the row scrolls when actions overflow. Not clickable.
         Box(
             Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .width(36.dp)
+                .width(28.dp)
                 .background(
-                    androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        listOf(
-                            androidx.compose.ui.graphics.Color.Transparent,
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
-                        ),
+                    Brush.horizontalGradient(
+                        listOf(Color.Transparent, MaterialTheme.colorScheme.background),
                     ),
                 ),
         )
+    }
+}
+
+/** One-line notice with an optional dismiss (errors, cloud pull results). */
+@Composable
+private fun NoticeRow(text: String, color: Color, onDismiss: (() -> Unit)? = null) {
+    EdgeCardSecondary(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
+            if (onDismiss != null) {
+                TextButton(onClick = onDismiss) { Text("Dismiss") }
+            }
+        }
     }
 }
 
@@ -396,92 +406,63 @@ private fun CaptureSection(
     onTypeChange: (MemoryType) -> Unit,
     onUserSyncChoiceChange: (SyncDecision?) -> Unit,
     onSave: () -> Unit,
+    onCancel: () -> Unit,
 ) {
-    EdgeCard {
+    EdgeCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingM)) {
-            SectionHeader(title = "New memory", subtitle = "Stored on device. Policy decides what may leave.")
+            SectionHeader(title = "New record")
             OutlinedTextField(
                 value = title,
                 onValueChange = onTitleChange,
                 label = { Text("Title") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(EdgeDimens.inputRadius),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = content,
                 onValueChange = onContentChange,
-                label = { Text("Content") },
+                label = { Text("Details") },
                 minLines = 3,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(EdgeDimens.inputRadius),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
-            ) {
-                val selectable = listOf(
+            FieldLabel("Type")
+            ChoiceRow {
+                listOf(
                     MemoryType.NOTE,
                     MemoryType.OBSERVATION,
-                    MemoryType.PROCEDURE,
                     MemoryType.REPAIR,
                     MemoryType.EVENT,
-                )
-                selectable.forEach { candidate ->
-                    FilterChip(
+                    MemoryType.PROCEDURE,
+                ).forEach { candidate ->
+                    SquareChoiceChip(
+                        label = typeLabel(candidate),
                         selected = type == candidate,
                         onClick = { onTypeChange(candidate) },
-                        label = { Text(candidate.name.lowercase()) },
                     )
                 }
             }
-            Text("Sync policy", style = MaterialTheme.typography.titleSmall)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
-            ) {
-                FilterChip(
-                    selected = userChoice == null,
-                    onClick = { onUserSyncChoiceChange(null) },
-                    label = { Text("auto") },
-                )
+            FieldLabel("Sync")
+            ChoiceRow {
+                SquareChoiceChip("Let the app decide", userChoice == null, { onUserSyncChoiceChange(null) })
                 SyncDecision.entries.forEach { candidate ->
-                    FilterChip(
+                    SquareChoiceChip(
+                        label = syncChoiceLabel(candidate),
                         selected = userChoice == candidate,
                         onClick = { onUserSyncChoiceChange(candidate) },
-                        label = { Text(candidate.name.lowercase().replace("_", " ")) },
                     )
                 }
             }
-            policy?.let { decision ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-                    TechLabel(
-                        text = "policy \u00b7 ${decision.syncDecision.name.lowercase().replace("_", " ")}",
-                        color = policyColor(decision.syncDecision),
-                    )
-                    StatusChip(
-                        text = policyEligibility(decision.syncDecision),
-                        color = policyColor(decision.syncDecision),
-                        containerColor = policyContainer(decision.syncDecision),
-                        showDot = false,
-                    )
-                }
-                Text(
-                    text = decision.reason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            policy?.let { PolicyLine(it.syncDecision, it.reason) }
+            Row(horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+                PillButton(
+                    text = "Save record",
+                    onClick = onSave,
+                    enabled = title.isNotBlank() || content.isNotBlank(),
                 )
+                TonalPill(text = "Cancel", onClick = onCancel)
             }
-            PillButton(
-                text = "Save to local memory",
-                onClick = onSave,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank() || content.isNotBlank(),
-            )
         }
     }
 }
@@ -489,171 +470,114 @@ private fun CaptureSection(
 // ── Import / ingestion ─────────────────────────────────────────────────────
 
 @Composable
-private fun IngestionStatus(
-    state: DocumentIngestionState,
-    onDismiss: () -> Unit,
-) {
+private fun IngestionStatus(state: DocumentIngestionState, onDismiss: () -> Unit) {
     if (state.stage == IngestionStage.IDLE && state.error == null) return
-    val edgeColors = LocalEdgeColors.current
-    EdgeCard {
-        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-                if (state.isActive) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                }
-                Text(
-                    text = buildString {
-                        append(state.sourceName ?: "document")
-                        append(" \u00b7 ")
-                        append(stageLabel(state.stage))
-                        if (state.stage == IngestionStage.COMPLETED) {
-                            append(" \u00b7 ${state.chunkCount} chunks")
-                        }
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (state.stage == IngestionStage.COMPLETED) {
-                        edgeColors.positive
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+    val edge = LocalEdgeColors.current
+    EdgeCardSecondary(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingM)) {
+            if (state.isActive) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             }
-            state.error?.let { error ->
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "${error::class.simpleName}: ${error.message}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    text = state.sourceName ?: "Document",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    text = stageLabel(state),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when (state.stage) {
+                        IngestionStage.COMPLETED -> edge.positive
+                        IngestionStage.FAILED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                state.error?.message?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (!state.isActive) {
                 TextButton(onClick = onDismiss) { Text("Dismiss") }
             }
         }
     }
 }
 
-private fun stageLabel(stage: IngestionStage): String = when (stage) {
-    IngestionStage.IDLE -> "idle"
-    IngestionStage.SELECTING -> "opening"
-    IngestionStage.EXTRACTING -> "extracting text"
-    IngestionStage.CHUNKING -> "chunking"
-    IngestionStage.EMBEDDING -> "embedding"
-    IngestionStage.STORING -> "storing locally"
-    IngestionStage.COMPLETED -> "stored locally"
-    IngestionStage.FAILED -> "failed"
+private fun stageLabel(state: DocumentIngestionState): String = when (state.stage) {
+    IngestionStage.IDLE -> ""
+    IngestionStage.SELECTING -> "Opening file"
+    IngestionStage.EXTRACTING -> "Reading text"
+    IngestionStage.CHUNKING -> "Splitting into sections"
+    IngestionStage.EMBEDDING -> "Indexing for search"
+    IngestionStage.STORING -> "Saving on this device"
+    IngestionStage.COMPLETED ->
+        "Saved as ${state.chunkCount} searchable ${if (state.chunkCount == 1) "section" else "sections"}"
+    IngestionStage.FAILED -> "Import failed"
 }
 
 // ── Cloud pull / conflicts ─────────────────────────────────────────────────
 
-@Composable
-private fun PullStatusCard(status: CloudPullStatus) {
-    val edgeColors = LocalEdgeColors.current
-    EdgeCard {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Cloud knowledge", style = MaterialTheme.typography.titleSmall)
-            when (status) {
-                CloudPullStatus.Idle -> Unit
-                CloudPullStatus.Unavailable -> Text(
-                    "no cloud backend is configured \u2014 nothing was received or fabricated.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-                is CloudPullStatus.Success -> {
-                    Text(
-                        text = pullResultText(status.result),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    StatusChip(
-                        text = "pulled from cloud",
-                        color = edgeColors.positive,
-                        containerColor = edgeColors.positiveContainer,
-                    )
-                }
-                is CloudPullStatus.Failed -> Text(
-                    status.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
+/** Plain summary of the real cloud pull outcome. Shared with Settings. */
+internal fun cloudPullSummary(status: CloudPullStatus): String = when (status) {
+    CloudPullStatus.Idle -> "Team updates arrive when you're back online."
+    CloudPullStatus.Unavailable -> "No cloud server is set up, so nothing was pulled."
+    is CloudPullStatus.Success -> buildString {
+        val r = status.result
+        append("Got ${r.applied} new or updated ${if (r.applied == 1) "record" else "records"}.")
+        if (r.conflicts > 0) append(" ${r.conflicts} to review.")
+        if (r.tombstoned > 0) append(" ${r.tombstoned} removed.")
+        if (r.duplicates > 0) append(" ${r.duplicates} already here.")
     }
-}
-
-private fun pullResultText(result: CloudPullResult): String = buildString {
-    append("received: ")
-    append(result.applied)
-    append(" new/updated \u00b7 ")
-    append(result.conflicts)
-    append(" conflicts \u00b7 ")
-    append(result.tombstoned)
-    append(" removed")
-    if (result.duplicates > 0) {
-        append(" \u00b7 ")
-        append(result.duplicates)
-        append(" duplicates skipped")
-    }
-    result.cursor?.let { append(" \u00b7 next \u00b7 $it") }
+    is CloudPullStatus.Failed -> "Pull failed: ${status.message}"
 }
 
 @Composable
-private fun ConflictsCard(
+private fun ConflictsSection(
     conflicts: List<Conflict>,
     onResolve: (String, ConflictResolutionAction) -> Unit,
 ) {
-    EdgeCard {
-        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-            SectionHeader(
-                title = "Conflicts",
-                subtitle = "Contradictory knowledge is kept visible until you decide.",
-            )
-            conflicts.forEach { conflict ->
-                ConflictItem(conflict, onResolve)
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
+        SectionHeader(title = "Conflicts", subtitle = "Both versions stay until you pick one.")
+        EdgeListGroup(conflicts) { conflict -> ConflictRow(conflict, onResolve) }
     }
 }
 
 @Composable
-private fun ConflictItem(
+private fun ConflictRow(
     conflict: Conflict,
     onResolve: (String, ConflictResolutionAction) -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+    Column(
+        Modifier.padding(horizontal = EdgeDimens.spacingL, vertical = EdgeDimens.spacingM),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            Modifier.padding(EdgeDimens.spacingM),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+        Text(
+            text = machineTag(conflict.subjectKey) ?: "No machine",
+            style = EdgeType.numeric,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(conflict.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ConflictSide("This device", conflict.localVersion, conflict.localAuthority, conflict.localTitle)
+        ConflictSide("Cloud", conflict.incomingVersion, conflict.incomingAuthority, conflict.incomingTitle)
+        if (conflict.state.name != "UNRESOLVED") {
             Text(
-                text = "conflict \u00b7 ${conflict.subjectKey.ifBlank { "no subject" }}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = conflict.reason,
+                text = "Resolved" + (conflict.resolution?.let { ": ${it.lowercase().replace('_', ' ')}" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalEdgeColors.current.positive,
             )
-            ConflictSide("LOCAL", conflict.localOrigin, conflict.localVersion, conflict.localAuthority, conflict.localTitle, conflict.localContent)
-            ConflictSide("CLOUD", conflict.incomingOrigin, conflict.incomingVersion, conflict.incomingAuthority, conflict.incomingTitle, conflict.incomingContent)
-            if (conflict.state.name != "UNRESOLVED") {
-                Text(
-                    text = "${conflict.state.name.lowercase()} \u00b7 ${conflict.resolution ?: ""}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-                    TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.KEEP_LOCAL) }) {
-                        Text("Keep local")
-                    }
-                    TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.KEEP_CLOUD) }) {
-                        Text("Accept cloud")
-                    }
-                    TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.DISMISS) }) {
-                        Text("Dismiss")
-                    }
+        } else {
+            Row {
+                TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.KEEP_LOCAL) }) {
+                    Text("Keep this device's")
+                }
+                TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.KEEP_CLOUD) }) {
+                    Text("Use cloud")
+                }
+                TextButton(onClick = { onResolve(conflict.conflictId, ConflictResolutionAction.DISMISS) }) {
+                    Text("Dismiss")
                 }
             }
         }
@@ -661,94 +585,56 @@ private fun ConflictItem(
 }
 
 @Composable
-private fun ConflictSide(
-    label: String,
-    origin: String,
-    version: Int?,
-    authority: String?,
-    title: String,
-    content: String,
-) {
-    Text(
-        text = "$label \u00b7 ${origin.lowercase()} \u00b7 v${version ?: "?"} \u00b7 authority ${authority ?: "\u2014"}",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Text(
-        text = "$title \u2014 ${content.take(80)}",
-        style = MaterialTheme.typography.bodySmall,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
+private fun ConflictSide(label: String, version: Int?, authority: String?, title: String) {
+    Column {
+        Text(
+            text = buildString {
+                append(label)
+                version?.let { append(", version $it") }
+                authority?.let { append(", from $it") }
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = title.ifBlank { "Untitled" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 // ── Sync summary ───────────────────────────────────────────────────────────
 
 @Composable
-private fun SyncStatusCard(summary: SyncSummary) {
-    val edgeColors = LocalEdgeColors.current
-    val total = summary.total
-    EdgeCardSecondary {
-        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
-            Text(
-                text = "Synchronization",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
-            ) {
-                if (summary.localOnly > 0) {
-                    StatusChip(
-                        text = "local only ${summary.localOnly}",
-                        color = edgeColors.accentAmber,
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f),
-                    )
-                }
-                if (summary.pending > 0) {
-                    StatusChip(
-                        text = "pending ${summary.pending}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (summary.syncing > 0) {
-                    StatusChip(
-                        text = "syncing ${summary.syncing}",
-                        color = edgeColors.accentBlue,
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
-                    )
-                }
-                if (summary.synced > 0) {
-                    StatusChip(
-                        text = "synced ${summary.synced}",
-                        color = edgeColors.positive,
-                        containerColor = edgeColors.positiveContainer.copy(alpha = 0.75f),
-                    )
-                }
-                if (summary.failed > 0) {
-                    StatusChip(
-                        text = "failed ${summary.failed}",
-                        color = MaterialTheme.colorScheme.error,
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.75f),
-                    )
-                }
-                if (total == 0L && summary.localOnly == 0L) {
-                    StatusChip(
-                        text = "nothing queued",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+private fun SyncSummaryRow(summary: SyncSummary) {
+    val chips = listOf(
+        Triple(summary.pending, "queued to sync", EdgeStatus.WARNING),
+        Triple(summary.syncing, "syncing", EdgeStatus.SYNCING),
+        Triple(summary.synced, "synced", EdgeStatus.SYNCED),
+        Triple(summary.failed, "failed", EdgeStatus.CRITICAL),
+        Triple(summary.localOnly, "only on this device", EdgeStatus.NEUTRAL),
+    ).filter { it.first > 0 }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+        ) {
+            if (chips.isEmpty()) {
+                StatusChip(text = "Nothing queued to sync")
             }
+            chips.forEach { (count, label, status) ->
+                val style = statusStyleFor(status)
+                StatusChip(text = "$count $label", color = style.onContainer, containerColor = style.container)
+            }
+        }
+        if (summary.failed > 0) {
             Text(
-                text = when {
-                    summary.failed > 0 -> "failed operations will retry automatically when the network allows."
-                    total > 0 && summary.synced == total -> "all outbound operations acknowledged by the cloud."
-                    total == 0L && summary.localOnly > 0L -> "nothing leaves this device without policy approval."
-                    else -> "outbound operations wait for connectivity and policy approval."
-                },
+                "Failed items retry when the network is back.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -756,246 +642,231 @@ private fun SyncStatusCard(summary: SyncSummary) {
     }
 }
 
-// ── List ───────────────────────────────────────────────────────────────────
+// ── Records ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ListHeader(searchActive: Boolean, itemCount: Int, memoryCount: Long) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = EdgeDimens.spacingS),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TechLabel(
-            text = when {
-                searchActive -> "${if (itemCount == 1) "result" else "results"} · $itemCount"
-                else -> "all memories"
-            },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (searchActive) {
-            Text(
-                text = "semantic search",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState(searchActive: Boolean, onOpenCapture: () -> Unit) {
-    EdgeCardSecondary {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = if (searchActive) "No matching memories" else "No memories yet",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = if (searchActive) {
-                    "Try different wording, or clear the search to browse everything."
-                } else {
-                    "Capture a note or import a document to start building your offline memory."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!searchActive) {
-                PillButton(text = "Capture a memory", onClick = onOpenCapture)
-            }
-        }
-    }
-}
-
-@Composable
-private fun MemoryCard(
+private fun RecordRow(
     memory: Memory,
     score: Double?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val edgeColors = LocalEdgeColors.current
-    Surface(
-        shape = RoundedCornerShape(EdgeDimens.cardRadius),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-        ),
-        tonalElevation = 1.dp,
-        onClick = onToggle,
+    val edge = LocalEdgeColors.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = EdgeDimens.spacingL, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            Modifier.padding(EdgeDimens.spacingL),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = memory.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                score?.let {
-                    Spacer(Modifier.width(EdgeDimens.spacingS))
-                    Text(
-                        text = "match %.0f%%".format((it * 100).coerceIn(0.0, 100.0)),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = edgeColors.positive,
-                    )
-                }
+        Text(
+            text = memory.title.ifBlank { "Untitled record" },
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            machineTag(memory.subjectKey)?.let {
+                Text(it, style = EdgeType.numeric, color = MaterialTheme.colorScheme.onSurface)
             }
-            Text(
-                text = plainPreview(memory.content),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (expanded) Int.MAX_VALUE else 3,
-                overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
-            ) {
-                StatusChip(
-                    text = memory.type.name.lowercase(),
-                    showDot = false,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-                StatusChip(
-                    text = originLabel(memory.origin),
-                    showDot = false,
-                    color = if (memory.origin == MemoryOrigin.CLOUD) {
-                        edgeColors.accentBlue
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    containerColor = if (memory.origin == MemoryOrigin.CLOUD) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                )
-                StatusChip(
-                    text = policyEligibility(memory.syncDecision),
-                    showDot = false,
-                    color = policyColor(memory.syncDecision),
-                    containerColor = policyContainer(memory.syncDecision).copy(alpha = 0.75f),
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = formatRelative(memory.updatedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                )
+            MetaText(typeLabel(memory.type))
+            if (memory.origin == MemoryOrigin.CLOUD) {
+                Text("From cloud", style = MaterialTheme.typography.labelMedium, color = edge.accentBlue)
             }
-            if (expanded) {
-                ExpandedDetails(memory, onDelete)
+            MetaText(relativeTimeLabel(memory.updatedAt))
+            score?.let {
+                MetaText("%.0f%% match".format((it * 100).coerceIn(0.0, 100.0)))
             }
+            Spacer(Modifier.weight(1f))
+            PolicyChip(memory.syncDecision)
+        }
+        Text(
+            text = plainPreview(memory.content),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (expanded) {
+            ExpandedDetails(memory, onDelete)
         }
     }
 }
 
 @Composable
+private fun MetaText(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
 private fun ExpandedDetails(memory: Memory, onDelete: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (memory.tags.isNotEmpty()) {
-            Text(
-                text = "tags \u00b7 ${memory.tags.joinToString(", ")}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (memory.type == MemoryType.DOCUMENT) {
-            Text(
-                text = documentLocation(memory),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text(
-            text = "sync \u00b7 ${syncStateLabel(memory.syncState)} \u00b7 origin ${memory.origin.name.lowercase()}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Column(
+        Modifier.padding(top = EdgeDimens.spacingXs),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (memory.tags.isNotEmpty()) DetailLine("Tags: ${memory.tags.joinToString(", ")}")
+        if (memory.type == MemoryType.DOCUMENT) DetailLine(documentLocation(memory))
+        DetailLine(syncStateLabel(memory.syncState))
         if (memory.origin == MemoryOrigin.CLOUD) {
-            Text(
-                text = "cloud \u00b7 v${memory.version} \u00b7 authority ${memory.authority ?: "\u2014"} \u00b7 updated ${formatTimestamp(memory.updatedAt)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+            DetailLine(
+                "Cloud version ${memory.version}" +
+                    (memory.authority?.let { ", from $it" } ?: "") +
+                    ", updated ${formatTimestamp(memory.updatedAt)}",
             )
         }
-        memory.policyReason?.let { reason ->
-            Text(
-                text = "policy reason \u00b7 $reason",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        memory.policyReason?.let { PolicyLine(memory.syncDecision, it) }
         if (memory.syncDecision == SyncDecision.SYNC_REDACTED && !memory.redactedContent.isNullOrBlank()) {
-            Text(
-                text = "redacted representation: ${memory.redactedContent.take(90)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            val copy = memory.redactedContent
+            DetailLine("What syncs: ${if (copy.length > 160) copy.take(160).trimEnd() + "…" else copy}")
         }
         TextButton(
             onClick = onDelete,
             modifier = Modifier.align(Alignment.End),
         ) {
-            androidx.compose.material3.Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("Delete", color = MaterialTheme.colorScheme.error)
+            Text("Delete record", color = MaterialTheme.colorScheme.error)
         }
     }
 }
 
-// ── Labels / helpers ───────────────────────────────────────────────────────
-
-private fun originLabel(origin: MemoryOrigin): String = when (origin) {
-    MemoryOrigin.LOCAL -> "local"
-    MemoryOrigin.CLOUD -> "cloud"
-    MemoryOrigin.SYNCED -> "synced"
+@Composable
+private fun DetailLine(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
+
+// ── Shared record-form pieces (also used by the record composer) ───────────
+
+/** Squared single-select chip, 48dp tall for gloved taps. Iris marks the selection. */
+@Composable
+internal fun SquareChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        ),
+        modifier = modifier
+            .heightIn(min = EdgeDimens.minTouch)
+            .semantics { contentDescription = label },
+    ) {
+        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(vertical = 14.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ChoiceRow(content: @Composable () -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+        verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+    ) { content() }
+}
+
+@Composable
+internal fun FieldLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+}
+
+/** Policy chip only where it adds information: normal sync gets none. */
+@Composable
+internal fun PolicyChip(decision: SyncDecision) {
+    val edge = LocalEdgeColors.current
+    when (decision) {
+        SyncDecision.LOCAL_ONLY -> {
+            val style = statusStyleFor(EdgeStatus.WARNING)
+            StatusChip(text = "Device only", color = style.onContainer, containerColor = style.container, showDot = false)
+        }
+        SyncDecision.SYNC_REDACTED -> StatusChip(
+            text = "Redacted copy syncs",
+            color = edge.accentViolet,
+            containerColor = edge.accentViolet.copy(alpha = 0.16f),
+            showDot = false,
+        )
+        SyncDecision.SYNC -> Unit
+    }
+}
+
+/** "Stays on this device: detected access or credential information." */
+@Composable
+internal fun PolicyLine(decision: SyncDecision, reason: String) {
+    val edge = LocalEdgeColors.current
+    val color = when (decision) {
+        SyncDecision.LOCAL_ONLY -> edge.accentAmber
+        SyncDecision.SYNC_REDACTED -> edge.accentViolet
+        SyncDecision.SYNC -> edge.accentBlue
+    }
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+        Box(
+            Modifier
+                .padding(top = 6.dp)
+                .size(EdgeLayout.statusDotSize)
+                .background(color, RoundedCornerShape(50)),
+        )
+        Text(
+            text = plainPolicyText(decision, reason),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+internal fun policyHeadline(decision: SyncDecision): String = when (decision) {
+    SyncDecision.LOCAL_ONLY -> "Stays on this device"
+    SyncDecision.SYNC -> "Syncs to your team"
+    SyncDecision.SYNC_REDACTED -> "A redacted copy syncs, the original stays here"
+}
+
+// ponytail: rewords the engine's "<why> — <outcome>" reason by keeping the
+// part before the dash; if engine reasons change shape, give PolicyDecision a
+// separate short-why field instead.
+internal fun plainPolicyText(decision: SyncDecision, reason: String): String {
+    val why = when {
+        reason.startsWith("User explicitly requested") -> "you chose this"
+        else -> reason.substringBefore(" — ").trim().trimEnd('.').replaceFirstChar { it.lowercase() }
+    }
+    return if (why.isBlank()) "${policyHeadline(decision)}." else "${policyHeadline(decision)}: $why."
+}
+
+internal fun typeLabel(type: MemoryType): String = when (type) {
+    MemoryType.DOCUMENT -> "Document"
+    MemoryType.NOTE -> "Note"
+    MemoryType.OBSERVATION -> "Observation"
+    MemoryType.PROCEDURE -> "Procedure"
+    MemoryType.REPAIR -> "Repair"
+    MemoryType.EVENT -> "Event"
+    MemoryType.CLOUD_KNOWLEDGE -> "Shared knowledge"
+}
+
+private fun syncChoiceLabel(decision: SyncDecision): String = when (decision) {
+    SyncDecision.LOCAL_ONLY -> "Device only"
+    SyncDecision.SYNC -> "Sync"
+    SyncDecision.SYNC_REDACTED -> "Redacted copy"
+}
+
+/** "p-101/observation" -> "P-101"; null when the record has no machine. */
+internal fun machineTag(subjectKey: String?): String? =
+    subjectKey?.substringBefore('/')?.trim()?.takeIf { it.isNotEmpty() }?.uppercase()
 
 private fun syncStateLabel(state: MemorySyncState): String = when (state) {
-    MemorySyncState.LOCAL -> "local only"
-    MemorySyncState.PENDING -> "pending sync"
-    MemorySyncState.SYNCED -> "synced"
-    MemorySyncState.FAILED -> "failed"
-}
-
-@Composable
-private fun policyColor(decision: SyncDecision) = when (decision) {
-    SyncDecision.LOCAL_ONLY -> MaterialTheme.colorScheme.tertiary
-    SyncDecision.SYNC -> MaterialTheme.colorScheme.primary
-    SyncDecision.SYNC_REDACTED -> MaterialTheme.colorScheme.secondary
-}
-
-@Composable
-private fun policyContainer(decision: SyncDecision) = when (decision) {
-    SyncDecision.LOCAL_ONLY -> MaterialTheme.colorScheme.tertiaryContainer
-    SyncDecision.SYNC -> MaterialTheme.colorScheme.primaryContainer
-    SyncDecision.SYNC_REDACTED -> MaterialTheme.colorScheme.secondaryContainer
-}
-
-private fun policyEligibility(decision: SyncDecision): String = when (decision) {
-    SyncDecision.LOCAL_ONLY -> "stays on device"
-    SyncDecision.SYNC -> "sync eligible"
-    SyncDecision.SYNC_REDACTED -> "syncs redacted copy"
+    MemorySyncState.LOCAL -> "Only on this device"
+    MemorySyncState.PENDING -> "Queued to sync"
+    MemorySyncState.SYNCED -> "Synced"
+    MemorySyncState.FAILED -> "Sync failed, will retry"
 }
 
 private val emphasisMarkerPattern = Regex("""(\*\*|__|~~|`|#{1,6}\s)""")
@@ -1007,28 +878,14 @@ private fun plainPreview(content: String): String {
 }
 
 private fun formatTimestamp(epochMillis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(epochMillis))
-
-private fun formatRelative(epochMillis: Long): String {
-    val delta = System.currentTimeMillis() - epochMillis
-    val minutes = delta / 60_000
-    val hours = delta / 3_600_000
-    val days = delta / 86_400_000
-    return when {
-        delta < 60_000 -> "just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 24 -> "${hours}h ago"
-        days < 7 -> "${days}d ago"
-        else -> formatTimestamp(epochMillis)
-    }
-}
+    SimpleDateFormat("d MMM yyyy, HH:mm", Locale.US).format(Date(epochMillis))
 
 private fun documentLocation(memory: Memory): String = buildList {
-    add("source ${memory.source}")
+    add("From ${memory.source}")
     memory.metadata[DocumentIngestionService.META_PAGE]?.let { add("page $it") }
     memory.metadata[DocumentIngestionService.META_SECTION]?.let { add(it) }
     memory.metadata[DocumentIngestionService.META_CHUNK_INDEX]?.let { raw ->
         val index = raw.toIntOrNull()
-        add(if (index != null) "chunk ${index + 1}" else "chunk $raw")
+        add(if (index != null) "part ${index + 1}" else "part $raw")
     }
-}.joinToString(" \u00b7 ")
+}.joinToString(", ")

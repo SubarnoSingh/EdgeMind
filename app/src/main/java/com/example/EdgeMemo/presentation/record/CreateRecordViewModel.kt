@@ -145,7 +145,7 @@ class CreateRecordViewModel(
                     _uiState.update { it.copy(documentName = source.displayName) }
                 }
                 .onFailure {
-                    _uiState.update { it.copy(error = "The selected document could not be read.") }
+                    _uiState.update { it.copy(error = "Couldn't read that file. Try choosing it again.") }
                 }
         }
     }
@@ -167,9 +167,9 @@ class CreateRecordViewModel(
             _uiState.update {
                 it.copy(
                     error = if (state.type == MemoryType.DOCUMENT && state.documentUri == null) {
-                        "Select a document, or provide a title or description."
+                        "Choose a file, or add a title or details."
                     } else {
-                        "Subject/asset is required, and title or content must be provided."
+                        "Add a machine, and a title or details."
                     },
                 )
             }
@@ -204,7 +204,7 @@ class CreateRecordViewModel(
                 _uiState.update {
                     it.copy(
                         submitting = false,
-                        error = e.message ?: "the record could not be stored",
+                        error = e.message ?: "Couldn't save the record. Try again.",
                     )
                 }
             }
@@ -217,7 +217,7 @@ class CreateRecordViewModel(
         val ingest = ingestDocument
         val uri = state.documentUri
         if (reader == null || ingest == null || uri == null) {
-            _uiState.update { it.copy(error = "Document ingestion is not available.") }
+            _uiState.update { it.copy(error = "File import isn't available here.") }
             return
         }
         _uiState.update { it.copy(submitting = true, error = null, ingestionStage = IngestionStage.SELECTING) }
@@ -241,7 +241,7 @@ class CreateRecordViewModel(
                     it.copy(
                         submitting = false,
                         ingestionStage = IngestionStage.FAILED,
-                        error = e.message ?: "the document could not be stored",
+                        error = e.message ?: "Couldn't import the file. Try again.",
                     )
                 }
             } catch (e: Exception) {
@@ -249,7 +249,7 @@ class CreateRecordViewModel(
                     it.copy(
                         submitting = false,
                         ingestionStage = IngestionStage.FAILED,
-                        error = e.message ?: "the document could not be stored",
+                        error = e.message ?: "Couldn't import the file. Try again.",
                     )
                 }
             }
