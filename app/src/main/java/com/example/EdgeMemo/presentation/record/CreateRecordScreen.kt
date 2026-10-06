@@ -3,59 +3,61 @@ package com.example.EdgeMemo.presentation.record
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.EdgeMemo.core.model.Memory
 import com.example.EdgeMemo.core.model.MemorySyncState
 import com.example.EdgeMemo.core.model.MemoryType
 import com.example.EdgeMemo.core.model.SyncDecision
+import com.example.EdgeMemo.domain.document.IngestionStage
 import com.example.EdgeMemo.presentation.components.EdgeCard
 import com.example.EdgeMemo.presentation.components.EdgeDimens
-import com.example.EdgeMemo.presentation.components.EdgeEmptyState
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
 import com.example.EdgeMemo.presentation.components.EdgeLoadingState
-import com.example.EdgeMemo.presentation.components.EdgeSpacer
 import com.example.EdgeMemo.presentation.components.PillButton
-import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
 import com.example.EdgeMemo.presentation.components.TonalPill
+import com.example.EdgeMemo.presentation.memory.ChoiceRow
+import com.example.EdgeMemo.presentation.memory.FieldLabel
+import com.example.EdgeMemo.presentation.memory.PolicyLine
+import com.example.EdgeMemo.presentation.memory.SquareChoiceChip
+import com.example.EdgeMemo.presentation.memory.machineTag
+import com.example.EdgeMemo.presentation.memory.typeLabel
 import com.example.EdgeMemo.presentation.shell.LoadableState
 import com.example.EdgeMemo.ui.theme.EdgeLayout
+import com.example.EdgeMemo.ui.theme.EdgeStatus
 import com.example.EdgeMemo.ui.theme.EdgeType
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 
+/** Record composer (pushed route). The shell draws Back; [onBack] stays for callers. */
 @Composable
 fun CreateRecordScreen(
     viewModel: CreateRecordViewModel,
-    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -70,408 +72,315 @@ fun CreateRecordScreen(
             .fillMaxSize()
             .testTag("edge-create-record-screen")
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+            .padding(horizontal = EdgeLayout.screenPadding)
+            .padding(top = EdgeDimens.spacingXs, bottom = EdgeDimens.spacing2xl),
+        verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingXl),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "\u2190 Back",
-                style = EdgeType.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .semantics { contentDescription = "Back" }
-                    .clickable(onClick = onBack)
-                    .padding(EdgeLayout.compactGap),
-            )
-            Spacer(Modifier.weight(1f))
-            TechLabel(
-                text = if (state.subjectLocked) {
-                    "ADD RECORDS · ${(state.machineName ?: state.subject).uppercase()}"
-                } else {
-                    "NEW RECORD"
-                },
-            )
-        }
+        Text(
+            text = if (state.subjectLocked) {
+                "Add records to ${state.machineName ?: state.subject.uppercase()}"
+            } else {
+                "New record"
+            },
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
 
         when (val dataState = state.data) {
             is LoadableState.Ready<Memory?> -> {
                 val created = dataState.value
                 if (created != null) {
-                    CreatedConfirmationCard(
+                    CreatedConfirmation(
                         memory = created,
-                        isDocument = state.type == MemoryType.DOCUMENT &&
-                            state.ingestedChunkCount != null,
+                        isDocument = state.type == MemoryType.DOCUMENT && state.ingestedChunkCount != null,
                         chunkCount = state.ingestedChunkCount,
                         onContinue = viewModel::onCreatedAcknowledged,
                         onAddAnother = viewModel::onAddAnother,
                     )
                 } else {
-                    ComposerCard(
+                    Composer(
                         state = state,
                         viewModel = viewModel,
-                        onPickDocument = {
-                            documentLauncher.launch(viewModel.supportedDocumentMimeTypes)
-                        },
+                        onPickDocument = { documentLauncher.launch(viewModel.supportedDocumentMimeTypes) },
                     )
                 }
             }
             is LoadableState.Failed -> EdgeErrorState(dataState.message, onRetry = { /* no-op */ })
-            is LoadableState.Loading -> EdgeLoadingState("Preparing…") // should not occur
+            is LoadableState.Loading -> EdgeLoadingState("Preparing") // should not occur
         }
     }
 }
 
+private val composerTypes = listOf(
+    MemoryType.OBSERVATION,
+    MemoryType.NOTE,
+    MemoryType.REPAIR,
+    MemoryType.EVENT,
+    MemoryType.PROCEDURE,
+    MemoryType.DOCUMENT,
+)
+
 @Composable
-private fun ComposerCard(
+private fun Composer(
     state: CreateRecordUiState,
     viewModel: CreateRecordViewModel,
     onPickDocument: () -> Unit,
 ) {
-    EdgeCard(modifier = Modifier.fillMaxWidth().testTag("edge-create-record-composer")) {
-        TechLabel(text = "CREATE RECORD")
-        EdgeSpacer(EdgeDimens.spacingS)
-
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("edge-create-record-composer"),
+        verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingL),
+    ) {
         if (state.subjectLocked) {
             // Machine capture: the subject is fixed to this machine's namespace,
-            // so every initial record stays isolated — show it read-only.
-            Text("FOR MACHINE", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            EdgeSpacer(EdgeDimens.spacingXs)
+            // so every initial record stays isolated. Shown read-only.
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("edge-create-subject-locked"),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
             ) {
-                StatusChip(
-                    text = state.machineName ?: state.subject,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    showDot = true,
-                )
-                Text(
-                    text = "#${state.subject}",
-                    style = EdgeType.metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Machine", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state.subject.uppercase(), style = EdgeType.numeric, color = MaterialTheme.colorScheme.onSurface)
             }
         } else {
-            LabeledField(
-                label = "ASSET / SUBJECT",
+            FormField(
+                label = "Machine or asset",
                 value = state.subject,
-                placeholder = "e.g. P-101, LINE-A, PUMP-3",
+                placeholder = "For example P-101",
                 tag = "edge-create-subject",
                 onValueChange = viewModel::onSubjectChange,
             )
         }
-        EdgeSpacer(EdgeDimens.spacingXs)
 
-        LabeledField(
-            label = "TITLE",
+        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+            FieldLabel("Type")
+            ChoiceRow {
+                composerTypes.forEach { type ->
+                    SquareChoiceChip(
+                        label = typeLabel(type),
+                        selected = state.type == type,
+                        onClick = { viewModel.onTypeChange(type) },
+                    )
+                }
+            }
+        }
+
+        if (state.type == MemoryType.DOCUMENT) {
+            DocumentPicker(state, viewModel, onPickDocument)
+        }
+
+        FormField(
+            label = "Title",
             value = state.title,
-            placeholder = "Short title (required if no content)",
+            placeholder = "What happened, in a few words",
             tag = "edge-create-title",
             onValueChange = viewModel::onTitleChange,
         )
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        LabeledField(
-            label = "DETAIL",
+        FormField(
+            label = "Details",
             value = state.content,
-            placeholder = "Observation, repair steps, procedure, etc.",
+            placeholder = "Readings, steps taken, parts used",
             tag = "edge-create-content",
             singleLine = false,
             onValueChange = viewModel::onContentChange,
         )
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        LabeledField(
-            label = "TAGS (optional, comma-separated)",
+        FormField(
+            label = "Tags (optional)",
             value = state.tags,
             placeholder = "seal, vibration, bearing",
+            supporting = "Separate tags with commas.",
             tag = "edge-create-tags",
             onValueChange = viewModel::onTagsChange,
         )
-        EdgeSpacer(EdgeDimens.spacingXs)
 
-        Text("TYPE", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            MemoryType.entries.forEach { type ->
-                TypeChip(
-                    type = type,
-                    selected = state.type == type,
-                    onClick = { viewModel.onTypeChange(type) },
+        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+            FieldLabel("Sync")
+            ChoiceRow {
+                SquareChoiceChip("Let the app decide", state.syncChoice == null, { viewModel.onSyncChoiceChange(null) })
+                SquareChoiceChip("Sync", state.syncChoice == SyncDecision.SYNC, { viewModel.onSyncChoiceChange(SyncDecision.SYNC) })
+                SquareChoiceChip(
+                    "Device only",
+                    state.syncChoice == SyncDecision.LOCAL_ONLY,
+                    { viewModel.onSyncChoiceChange(SyncDecision.LOCAL_ONLY) },
                 )
-            }
-        }
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        // DOCUMENT type: real system file picker (SAF) for the supported
-        // document types (PDF / TXT / MD) the ingestion pipeline can extract.
-        if (state.type == MemoryType.DOCUMENT) {
-            Text("DOCUMENT", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            EdgeSpacer(EdgeDimens.spacingXs)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-            ) {
-                PillButton(
-                    text = "Select document",
-                    onClick = onPickDocument,
-                    enabled = !state.isBusy,
-                    modifier = Modifier.testTag("edge-create-select-document"),
-                )
-                TonalPill(
-                    text = if (state.documentName != null) "Change" else "Cancel",
-                    onClick = if (state.documentName != null) onPickDocument else viewModel::onDocumentClear,
-                )
-            }
-            EdgeSpacer(EdgeDimens.spacingXs)
-            // Honest status of the picked/ingesting document.
-            val label = when {
-                state.documentName != null -> state.documentName!!
-                state.documentUri != null -> "Selected document"
-                else -> "No document selected"
             }
             Text(
-                text = label,
-                style = EdgeType.metadata,
-                color = if (state.documentName != null) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                text = when (state.syncChoice) {
+                    null -> "Checked when you save. Access codes and private notes stay on this device."
+                    SyncDecision.SYNC -> "Syncs to your team when you're online."
+                    SyncDecision.LOCAL_ONLY -> "Stays on this device and is never queued to sync."
+                    SyncDecision.SYNC_REDACTED -> "Only a redacted copy syncs."
                 },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag("edge-create-document-name"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            state.ingestionStage?.let { stage ->
-                if (stage != com.example.EdgeMemo.domain.document.IngestionStage.IDLE &&
-                    stage != com.example.EdgeMemo.domain.document.IngestionStage.COMPLETED
-                ) {
-                    EdgeSpacer(EdgeDimens.spacingXs)
-                    Text(
-                        text = "Ingesting \u00B7 ${stage.name.lowercase()}",
-                        style = EdgeType.metadata,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.testTag("edge-create-ingestion-stage"),
-                    )
-                }
-            }
-            EdgeSpacer(EdgeDimens.spacingXs)
         }
-
-        Text("SYNC", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            SyncChip("Auto (policy)", state.syncChoice == null, { viewModel.onSyncChoiceChange(null) })
-            SyncChip("Sync", state.syncChoice == SyncDecision.SYNC, { viewModel.onSyncChoiceChange(SyncDecision.SYNC) })
-            SyncChip("Local only", state.syncChoice == SyncDecision.LOCAL_ONLY, { viewModel.onSyncChoiceChange(SyncDecision.LOCAL_ONLY) })
-        }
-        EdgeSpacer(EdgeDimens.spacingS)
 
         state.error?.let {
-            Text(text = it, style = EdgeType.metadata, color = MaterialTheme.colorScheme.error)
-            EdgeSpacer(EdgeDimens.spacingXs)
+            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
             PillButton(
-                text = if (state.isBusy) "Saving…" else "Save to memory",
+                text = if (state.isBusy) "Saving" else "Save record",
                 onClick = viewModel::submit,
                 enabled = !state.isBusy && state.isFormValid,
                 modifier = Modifier.testTag("edge-create-submit"),
             )
             TonalPill(text = "Cancel", onClick = viewModel::cancel)
         }
-
-        Text(
-            text = "Saved through CreateMemoryUseCase: policy evaluation, local Qdrant persistence " +
-                "and change detection all run before the real sync state is shown.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
 @Composable
-private fun CreatedConfirmationCard(
+private fun DocumentPicker(
+    state: CreateRecordUiState,
+    viewModel: CreateRecordViewModel,
+    onPickDocument: () -> Unit,
+) {
+    // DOCUMENT type: real system file picker (SAF) for the types the
+    // ingestion pipeline can extract (PDF / TXT / MD).
+    Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+        FieldLabel("File")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+            TonalPill(
+                text = if (state.documentUri != null) "Change file" else "Choose file",
+                onClick = onPickDocument,
+                enabled = !state.isBusy,
+                modifier = Modifier.testTag("edge-create-select-document"),
+            )
+            if (state.documentUri != null && !state.isBusy) {
+                TextButton(onClick = viewModel::onDocumentClear) { Text("Remove") }
+            }
+        }
+        Text(
+            text = state.documentName ?: if (state.documentUri != null) "File selected" else "PDF, text or Markdown",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (state.documentName != null) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.testTag("edge-create-document-name"),
+        )
+        state.ingestionStage?.let { stage ->
+            if (stage != IngestionStage.IDLE && stage != IngestionStage.COMPLETED) {
+                Text(
+                    text = when (stage) {
+                        IngestionStage.SELECTING -> "Opening file"
+                        IngestionStage.EXTRACTING -> "Reading text"
+                        IngestionStage.CHUNKING -> "Splitting into sections"
+                        IngestionStage.EMBEDDING -> "Indexing for search"
+                        IngestionStage.STORING -> "Saving on this device"
+                        else -> "Import failed"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (stage == IngestionStage.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.testTag("edge-create-ingestion-stage"),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatedConfirmation(
     memory: Memory,
     isDocument: Boolean,
     chunkCount: Int?,
     onContinue: () -> Unit,
     onAddAnother: () -> Unit,
 ) {
+    val tag = machineTag(memory.subjectKey)
     EdgeCard(modifier = Modifier.fillMaxWidth().testTag("edge-create-record-created")) {
-        TechLabel(text = "RECORD CREATED", color = MaterialTheme.colorScheme.primary)
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        Text(
-            text = memory.title.ifBlank { memory.memoryId.take(8) },
-            style = EdgeType.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            StatusChip(
-                text = memory.type.name,
-                color = MaterialTheme.colorScheme.primary,
-                showDot = true,
+        Column(verticalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+            Text("Record saved", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                text = memory.title.ifBlank { "Untitled record" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
-            StatusChip(
-                text = memory.subjectKey ?: "—",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                showDot = false,
-            )
-        }
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            StatusChip(
-                text = when (memory.syncState) {
-                    MemorySyncState.PENDING -> "pending sync"
-                    MemorySyncState.FAILED -> "sync failed"
-                    MemorySyncState.SYNCED -> "synced"
-                    MemorySyncState.LOCAL -> "local only"
-                },
-                color = when (memory.syncState) {
-                    MemorySyncState.PENDING -> MaterialTheme.colorScheme.tertiary
-                    MemorySyncState.FAILED -> MaterialTheme.colorScheme.error
-                    MemorySyncState.SYNCED -> MaterialTheme.colorScheme.primary
-                    MemorySyncState.LOCAL -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                showDot = true,
-            )
-            if (memory.syncDecision != SyncDecision.LOCAL_ONLY) {
-                StatusChip(
-                    text = memory.syncDecision.name.lowercase().replace('_', ' '),
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                tag?.let { Text(it, style = EdgeType.numeric, color = MaterialTheme.colorScheme.onSurface) }
+                Text(typeLabel(memory.type), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            // The policy line already says "stays on this device"; the sync
+            // state adds information only once the record can actually sync.
+            val reason = memory.policyReason
+            if (reason == null || memory.syncState != MemorySyncState.LOCAL) SyncStateLine(memory.syncState)
+            reason?.let { PolicyLine(memory.syncDecision, it) }
+            if (isDocument && chunkCount != null) {
+                Text(
+                    text = "Saved as $chunkCount searchable ${if (chunkCount == 1) "section" else "sections"}.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    showDot = false,
+                    modifier = Modifier.testTag("edge-create-document-summary"),
                 )
             }
-        }
-        EdgeSpacer(EdgeDimens.spacingXs)
-
-        if (isDocument && chunkCount != null) {
-            Text(
-                text = "Ingested $chunkCount searchable ${if (chunkCount == 1) "chunk" else "chunks"} " +
-                    "through the local document pipeline.",
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("edge-create-document-summary"),
-            )
-        } else {
-            Text(
-                text = "The asset \"${CreateRecordModel.namespaceOf(memory.subjectKey ?: "")}\" is now available in Machines.",
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        EdgeSpacer(EdgeDimens.spacingS)
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            PillButton(text = "Open asset", onClick = onContinue, modifier = Modifier.testTag("edge-create-open-asset"))
-            TonalPill(
-                text = "Add another record",
-                onClick = onAddAnother,
-                modifier = Modifier.testTag("edge-create-add-another"),
-            )
+            Row(
+                modifier = Modifier.padding(top = EdgeDimens.spacingS),
+                horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS),
+            ) {
+                PillButton(
+                    text = tag?.let { "Open $it" } ?: "Done",
+                    onClick = onContinue,
+                    modifier = Modifier.testTag("edge-create-open-asset"),
+                )
+                TonalPill(
+                    text = "Add another",
+                    onClick = onAddAnother,
+                    modifier = Modifier.testTag("edge-create-add-another"),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun TypeChip(
-    type: MemoryType,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    StatusChip(
-        text = type.name,
-        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        showDot = true,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = "Record type ${type.name}" },
-    )
+private fun SyncStateLine(syncState: MemorySyncState) {
+    val (status, label) = when (syncState) {
+        MemorySyncState.PENDING -> EdgeStatus.WARNING to "Queued to sync"
+        MemorySyncState.FAILED -> EdgeStatus.CRITICAL to "Sync failed, will retry"
+        MemorySyncState.SYNCED -> EdgeStatus.SYNCED to "Synced"
+        MemorySyncState.LOCAL -> EdgeStatus.NEUTRAL to "Only on this device"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EdgeDimens.spacingS)) {
+        Box(Modifier.size(EdgeLayout.statusDotSize).background(statusStyleFor(status).color, CircleShape))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+    }
 }
 
 @Composable
-private fun SyncChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    StatusChip(
-        text = label,
-        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        showDot = false,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = "Sync choice $label" },
-    )
-}
-
-@Composable
-private fun LabeledField(
+private fun FormField(
     label: String,
     value: String,
     placeholder: String,
     tag: String,
     onValueChange: (String) -> Unit,
     singleLine: Boolean = true,
+    supporting: String? = null,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = if (singleLine) 40.dp else 64.dp)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-                )
-                .padding(EdgeLayout.cardGap),
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = singleLine,
-                maxLines = if (singleLine) 1 else 6,
-                textStyle = EdgeType.body.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = if (singleLine) ImeAction.Next else ImeAction.Default
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(tag)
-                    .semantics { contentDescription = label.lowercase() },
-                decorationBox = { inner ->
-                    if (value.isEmpty()) {
-                        Text(
-                            placeholder,
-                            style = EdgeType.metadata,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        )
-                    }
-                    inner()
-                },
-            )
-        }
-    }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        supportingText = supporting?.let { { Text(it) } },
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else 4,
+        maxLines = if (singleLine) 1 else 8,
+        keyboardOptions = KeyboardOptions(imeAction = if (singleLine) ImeAction.Next else ImeAction.Default),
+        shape = RoundedCornerShape(EdgeDimens.inputRadius),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+        ),
+        modifier = Modifier.fillMaxWidth().testTag(tag),
+    )
 }
