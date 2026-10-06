@@ -73,6 +73,8 @@ object AssetUiTags {
     const val REFRESH = "edge-asset-refresh"
     const val FILTER_PREFIX = "edge-asset-filter-"
     const val ADD_OBSERVATION = "edge-asset-add-observation"
+    const val ADD_EVENT = "edge-asset-add-event"
+    const val ADD_PROCEDURE = "edge-asset-add-procedure"
     const val LOG_MAINTENANCE = "edge-asset-log-maintenance"
     const val COMPOSER = "edge-asset-composer"
     const val COMPOSER_TITLE = "edge-asset-composer-title"
@@ -80,6 +82,7 @@ object AssetUiTags {
     const val COMPOSER_SUBMIT = "edge-asset-composer-submit"
     const val CREATED_MESSAGE = "edge-asset-created"
     const val CREATED_SYNC = "edge-asset-created-sync"
+    const val TYPE_PREFIX = "edge-asset-type-"
     const val EMPTY = "edge-asset-empty"
 }
 
@@ -173,6 +176,8 @@ fun MachineDetailScreen(
                                 onOpenConflict = viewModel::openConflict,
                                 onAddObservation = viewModel::openObservationComposer,
                                 onLogMaintenance = viewModel::openMaintenanceComposer,
+                                onAddEvent = viewModel::openEventComposer,
+                                onAddProcedure = viewModel::openProcedureComposer,
                             )
                         }
                     }
@@ -433,6 +438,8 @@ private fun FocusedActivitySections(
     onOpenConflict: (String) -> Unit,
     onAddObservation: () -> Unit,
     onLogMaintenance: () -> Unit,
+    onAddEvent: () -> Unit,
+    onAddProcedure: () -> Unit,
 ) {
     FocusedRecordSection(
         title = "RECENT MAINTENANCE",
@@ -468,6 +475,9 @@ private fun FocusedActivitySections(
         records = data.incidentRecords,
         emptyMessage = "No incident records are available in local knowledge.",
         sectionTag = AssetUiTags.INCIDENTS,
+        actionLabel = "+ Log event",
+        actionTag = AssetUiTags.ADD_EVENT,
+        onAction = onAddEvent,
         data = data,
         nowMillis = nowMillis,
         onOpenRecord = onOpenRecord,
@@ -479,6 +489,9 @@ private fun FocusedActivitySections(
         records = data.procedureRecords,
         emptyMessage = "No procedures are available in local knowledge.",
         sectionTag = AssetUiTags.PROCEDURES,
+        actionLabel = "+ Add procedure",
+        actionTag = AssetUiTags.ADD_PROCEDURE,
+        onAction = onAddProcedure,
         data = data,
         nowMillis = nowMillis,
         onOpenRecord = onOpenRecord,
@@ -741,36 +754,37 @@ private fun ComposerCard(
     viewModel: MachineDetailViewModel,
 ) {
     EdgeCard(modifier = Modifier.fillMaxWidth().testTag(AssetUiTags.COMPOSER)) {
+        // Closed-but-confirmed fallback: the reusable form stays open after a
+        // save (keepOpenAfterSave), but if it was dismissed we still surface
+        // the honest one-shot confirmation with an explicit re-open action so
+        // more evidence can always be added to this machine.
         if (composer.createdMessage != null && !composer.open) {
-            Text(
-                text = composer.createdMessage,
-                style = EdgeType.body,
-                color = EdgeStatus.SYNCED.statusColor(),
-                modifier = Modifier.testTag(AssetUiTags.CREATED_MESSAGE),
-            )
-            composer.createdSyncState?.let { state ->
-                Spacer(Modifier.size(EdgeLayout.compactGap))
-                SyncIndicator(
-                    state = state,
-                    modifier = Modifier.testTag(AssetUiTags.CREATED_SYNC),
-                )
-            }
+            ConfirmationStrip(composer)
             Spacer(Modifier.size(EdgeLayout.compactGap))
             TonalPill(
                 text = "Add another",
-                onClick = if (composer.type == MemoryType.REPAIR) {
-                    viewModel::openMaintenanceComposer
-                } else {
-                    viewModel::openObservationComposer
+                onClick = when (composer.type) {
+                    MemoryType.REPAIR -> viewModel::openMaintenanceComposer
+                    MemoryType.EVENT -> viewModel::openEventComposer
+                    MemoryType.PROCEDURE -> viewModel::openProcedureComposer
+                    else -> viewModel::openObservationComposer
                 },
             )
             return@EdgeCard
         }
+
+        // Inline success strip above the (cleared) reusable form.
+        if (composer.createdMessage != null) {
+            ConfirmationStrip(composer)
+            Spacer(Modifier.size(EdgeLayout.compactGap))
+        }
+
         TechLabel(
-            text = if (composer.type == MemoryType.REPAIR) {
-                "LOG MAINTENANCE \u00B7 ${namespace.uppercase()}"
-            } else {
-                "ADD ${composer.type.name} \u00B7 ${namespace.uppercase()}"
+            text = when (composer.type) {
+                MemoryType.REPAIR -> "LOG MAINTENANCE \u00B7 ${namespace.uppercase()}"
+                MemoryType.EVENT -> "LOG EVENT \u00B7 ${namespace.uppercase()}"
+                MemoryType.PROCEDURE -> "ADD PROCEDURE \u00B7 ${namespace.uppercase()}"
+                else -> "ADD ${composer.type.name} \u00B7 ${namespace.uppercase()}"
             },
         )
         Spacer(Modifier.size(EdgeLayout.compactGap))
@@ -792,12 +806,24 @@ private fun ComposerCard(
         )
         Spacer(Modifier.size(EdgeLayout.compactGap))
         Text("TYPE", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        StatusChip(
-            text = composer.type.name,
-            color = MaterialTheme.colorScheme.primary,
-            showDot = true,
-            modifier = Modifier.testTag("edge-asset-type-${composer.type.name.lowercase()}"),
-        )
+        // Selectable record type: observations, maintenance, events and
+        // procedures are all added to the SAME machine through the existing
+        // production CreateMemoryUseCase path.
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+        ) {
+            composer.assetRecordTypes.forEach { type ->
+                FilterChip(
+                    label = type.name,
+                    selected = composer.type == type,
+                    onClick = { viewModel.onComposerTypeChange(type) },
+                    modifier = Modifier
+                        .testTag("edge-asset-type-${type.name.lowercase()}")
+                        .semantics { contentDescription = "Record type ${type.name}" },
+                )
+            }
+        }
         Spacer(Modifier.size(EdgeLayout.compactGap))
         Text("SYNC", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
@@ -836,6 +862,32 @@ private fun ComposerCard(
             style = EdgeType.metadata,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** Honest post-save confirmation: message + the real sync state of the record. */
+@Composable
+private fun ConfirmationStrip(composer: AssetComposerState) {
+    EdgeCardSecondary(
+        modifier = Modifier.fillMaxWidth().testTag(AssetUiTags.CREATED_MESSAGE),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+        ) {
+            Text(
+                text = composer.createdMessage.orEmpty(),
+                style = EdgeType.body,
+                color = EdgeStatus.SYNCED.statusColor(),
+                modifier = Modifier.weight(1f),
+            )
+            composer.createdSyncState?.let { state ->
+                SyncIndicator(
+                    state = state,
+                    modifier = Modifier.testTag(AssetUiTags.CREATED_SYNC),
+                )
+            }
+        }
     }
 }
 

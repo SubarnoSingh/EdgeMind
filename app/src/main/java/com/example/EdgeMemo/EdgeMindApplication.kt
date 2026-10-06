@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import android.util.Log
 import androidx.work.Configuration
+import com.example.EdgeMemo.data.seed.CoolingWaterPumpDataset
 import com.example.EdgeMemo.data.seed.CubicalDataset
 import com.example.EdgeMemo.di.AppContainer
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,21 @@ class EdgeMindApplication : Application(), Configuration.Provider {
             if (Build.FINGERPRINT != "robolectric") {
                 runCatching { CubicalDataset.seedIfNeeded(this@EdgeMindApplication, container.memoryRepository) }
                     .onFailure { Log.e("EdgeMind", "cubical dataset seed failed", it) }
+                // Second pitch demo machine (P-103), seeded incrementally with its
+                // own flag so an install already marked P-101 complete still gets it.
+                runCatching { CoolingWaterPumpDataset.seedIfNeeded(this@EdgeMindApplication, container.memoryRepository) }
+                    .onFailure { Log.e("EdgeMind", "cooling water pump seed failed", it) }
+                // Real document pipeline ingest of the bundled demo PDF, associated
+                // with P-103. Kept separate + guarded so a failure never blocks the
+                // two-machine demo; it can also be done manually via Add Record.
+                runCatching {
+                    CoolingWaterPumpDataset.seedPdfIfNeeded(
+                        context = this@EdgeMindApplication,
+                        repository = container.memoryRepository,
+                        reader = container.documentReader,
+                        ingest = container.ingestDocument,
+                    )
+                }.onFailure { Log.e("EdgeMind", "cooling water pump pdf ingest failed", it) }
             }
         }
     }

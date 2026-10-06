@@ -7,6 +7,7 @@ class IngestDocumentUseCase(
 ) {
     suspend operator fun invoke(
         source: DocumentSource,
+        subjectKey: String? = null,
         onStage: (IngestionStage) -> Unit = {},
-    ): IngestionResult = service.ingest(source, onStage)
+    ): IngestionResult = service.ingest(source, subjectKey, onStage)
 }

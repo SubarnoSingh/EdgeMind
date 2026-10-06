@@ -269,6 +269,7 @@ class EdgeShellViewModelsTest {
         val vm = MachinesViewModel(
             ListMemoriesUseCase(repo),
             ListConflictsUseCase(FakeConflictRepository(listOf(conflict("p101/seal")))),
+            createMemory = CreateMemoryUseCase(repo),
             navigator,
         )
         advanceUntilIdle()

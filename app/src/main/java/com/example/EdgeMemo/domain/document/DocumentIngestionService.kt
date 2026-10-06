@@ -35,6 +35,7 @@ class DocumentIngestionService(
 
     suspend fun ingest(
         source: DocumentSource,
+        subjectKey: String? = null,
         onStage: (IngestionStage) -> Unit = {},
     ): IngestionResult = withContext(dispatcher) {
         onStage(IngestionStage.EXTRACTING)
@@ -70,6 +71,11 @@ class DocumentIngestionService(
                 },
                 source = source.displayName,
                 chunkId = "$documentId#${chunk.index}",
+                // When captured for a machine/asset, every chunk keeps that
+                // namespace so ingestion stays isolated to the right machine;
+                // null preserves the previous unassociated behaviour.
+                subjectKey = subjectKey?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+                    ?.let { "$it/${MemoryType.DOCUMENT.name.lowercase()}" },
                 metadata = buildMap {
                     put(META_DOCUMENT_ID, documentId)
                     put(META_DOCUMENT_TITLE, extracted.title)

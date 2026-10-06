@@ -92,7 +92,7 @@ fun EdgeMindShell(
             ) {
                 when (val current = route) {
                     EdgeRoute.Dashboard -> DashboardTab(container, shellViewModel, shellState)
-                    EdgeRoute.Machines -> MachinesTab(container, shellViewModel)
+                    EdgeRoute.Machines -> MachinesTab(container, shellViewModel, shellState)
                     EdgeRoute.Ask -> AskTab(container, shellViewModel)
                     EdgeRoute.Sync -> SyncTab(container, shellViewModel, shellState)
                     EdgeRoute.Settings -> SettingsScreen(
@@ -145,12 +145,19 @@ fun EdgeMindShell(
                         ),
                         onBack = { shellViewModel.back() },
                     )
-                    EdgeRoute.CreateRecord -> CreateRecordScreen(
-                        viewModel = viewModel(factory = container.createRecordViewModelFactory(
-                            navigator = shellViewModel.navigator,
-                        )),
-                        onBack = { shellViewModel.back() },
-                    )
+                    EdgeRoute.CreateRecord -> {
+                        val capture by shellViewModel.navigator.machineCapture.collectAsState()
+                        CreateRecordScreen(
+                            viewModel = viewModel(
+                                key = "create-record-${capture?.subject ?: "free"}",
+                                factory = container.createRecordViewModelFactory(
+                                    navigator = shellViewModel.navigator,
+                                    capture = capture,
+                                ),
+                            ),
+                            onBack = { shellViewModel.back() },
+                        )
+                    }
                 }
             }
             EdgeBottomNavBar(
@@ -262,12 +269,20 @@ private fun AskTab(container: AppContainer, shellViewModel: ShellViewModel) {
 }
 
 @Composable
-private fun MachinesTab(container: AppContainer, shellViewModel: ShellViewModel) {
+private fun MachinesTab(
+    container: AppContainer,
+    shellViewModel: ShellViewModel,
+    shellState: ShellUiState,
+) {
     val viewModel: MachinesViewModel = viewModel(
         factory = container.machinesViewModelFactory(shellViewModel.navigator),
     )
     LaunchedEffect(Unit) { viewModel.refresh() }
-    MachinesScreen(viewModel = viewModel)
+    MachinesScreen(
+        viewModel = viewModel,
+        sync = shellState.sync,
+        isOnline = shellState.isOnline,
+    )
 }
 
 @Composable

@@ -261,7 +261,8 @@ class AppContainer(context: Context) {
     val deleteMemory = DeleteMemoryUseCase(memoryRepository)
     val getMemoryCount = GetMemoryCountUseCase(memoryRepository)
 
-    private val documentReader = ContentResolverDocumentReader(appContext)
+    /** Exposed so the pitch build can ingest the bundled demo PDF at seed time. */
+    val documentReader = ContentResolverDocumentReader(appContext)
 
     private val documentExtractors = DocumentExtractorRegistry(
         listOf(
@@ -412,6 +413,7 @@ class AppContainer(context: Context) {
             com.example.EdgeMemo.presentation.machines.MachinesViewModel(
                 listMemories = listMemories,
                 listConflicts = listConflicts,
+                createMemory = createMemory,
                 navigator = navigator,
             )
         }
@@ -445,11 +447,16 @@ class AppContainer(context: Context) {
 
     fun createRecordViewModelFactory(
         navigator: com.example.EdgeMemo.presentation.shell.EdgeNavigator,
+        capture: com.example.EdgeMemo.presentation.shell.MachineCapture? = null,
     ): ViewModelProvider.Factory = viewModelFactory {
         initializer {
             com.example.EdgeMemo.presentation.record.CreateRecordViewModel(
                 createMemory = createMemory,
                 navigator = navigator,
+                documentReader = documentReader,
+                ingestDocument = ingestDocument,
+                initialSubject = capture?.subject,
+                machineName = capture?.displayName,
             )
         }
     }

@@ -1,0 +1,74 @@
+%PDF-1.4
+%EdgeMind fictional demo bulletin
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1149 >>
+stream
+BT
+/F1 12 Tf
+50 760 Td
+14 TL
+(Cooling Water Pump P-103 - Vibration Follow-up Bulletin) Tj
+T*
+(Reference: DEMO-EVT-103-01. Fictional internal demonstration data.) Tj
+T*
+() Tj
+T*
+(Incident summary) Tj
+T*
+(A vibration alert was logged on the P-103 cooling water pump during a) Tj
+T*
+(night shift. Elevated vibration was reported on the outboard bearing end.) Tj
+T*
+(Coupling alignment was inspected and found slightly outside tolerance.) Tj
+T*
+(The pump was returned to service with reduced load and scheduled monitoring.) Tj
+T*
+() Tj
+T*
+(Follow-up checklist) Tj
+T*
+(1. Re-measure vibration on both bearing ends after two operating days.) Tj
+T*
+(2. Verify coupling alignment and soft-foot before re-tightening hold-downs.) Tj
+T*
+(3. Record suction and discharge pressure during the observation window.) Tj
+T*
+(4. Log any recurring vibration events with a new incident reference.) Tj
+T*
+() Tj
+T*
+(Root cause status) Tj
+T*
+(The available evidence is insufficient to confirm a single root cause.) Tj
+T*
+(Recurring vibration may relate to coupling alignment, bearing condition,) Tj
+T*
+(or unstable suction conditions; these must be checked together.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000043 00000 n 
+0000000092 00000 n 
+0000000149 00000 n 
+0000000275 00000 n 
+0000001476 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1546
+%%EOF

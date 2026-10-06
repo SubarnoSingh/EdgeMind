@@ -1,5 +1,7 @@
 package com.example.EdgeMemo.presentation.record
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,11 @@ fun CreateRecordScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
+    val documentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = viewModel::onDocumentPicked,
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -77,7 +84,13 @@ fun CreateRecordScreen(
                     .padding(EdgeLayout.compactGap),
             )
             Spacer(Modifier.weight(1f))
-            TechLabel(text = "NEW RECORD")
+            TechLabel(
+                text = if (state.subjectLocked) {
+                    "ADD RECORDS · ${(state.machineName ?: state.subject).uppercase()}"
+                } else {
+                    "NEW RECORD"
+                },
+            )
         }
 
         when (val dataState = state.data) {
@@ -86,10 +99,20 @@ fun CreateRecordScreen(
                 if (created != null) {
                     CreatedConfirmationCard(
                         memory = created,
+                        isDocument = state.type == MemoryType.DOCUMENT &&
+                            state.ingestedChunkCount != null,
+                        chunkCount = state.ingestedChunkCount,
                         onContinue = viewModel::onCreatedAcknowledged,
+                        onAddAnother = viewModel::onAddAnother,
                     )
                 } else {
-                    ComposerCard(state, viewModel)
+                    ComposerCard(
+                        state = state,
+                        viewModel = viewModel,
+                        onPickDocument = {
+                            documentLauncher.launch(viewModel.supportedDocumentMimeTypes)
+                        },
+                    )
                 }
             }
             is LoadableState.Failed -> EdgeErrorState(dataState.message, onRetry = { /* no-op */ })
@@ -102,18 +125,43 @@ fun CreateRecordScreen(
 private fun ComposerCard(
     state: CreateRecordUiState,
     viewModel: CreateRecordViewModel,
+    onPickDocument: () -> Unit,
 ) {
     EdgeCard(modifier = Modifier.fillMaxWidth().testTag("edge-create-record-composer")) {
         TechLabel(text = "CREATE RECORD")
         EdgeSpacer(EdgeDimens.spacingS)
 
-        LabeledField(
-            label = "ASSET / SUBJECT",
-            value = state.subject,
-            placeholder = "e.g. P-101, LINE-A, PUMP-3",
-            tag = "edge-create-subject",
-            onValueChange = viewModel::onSubjectChange,
-        )
+        if (state.subjectLocked) {
+            // Machine capture: the subject is fixed to this machine's namespace,
+            // so every initial record stays isolated — show it read-only.
+            Text("FOR MACHINE", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            EdgeSpacer(EdgeDimens.spacingXs)
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("edge-create-subject-locked"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+            ) {
+                StatusChip(
+                    text = state.machineName ?: state.subject,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    showDot = true,
+                )
+                Text(
+                    text = "#${state.subject}",
+                    style = EdgeType.metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LabeledField(
+                label = "ASSET / SUBJECT",
+                value = state.subject,
+                placeholder = "e.g. P-101, LINE-A, PUMP-3",
+                tag = "edge-create-subject",
+                onValueChange = viewModel::onSubjectChange,
+            )
+        }
         EdgeSpacer(EdgeDimens.spacingXs)
 
         LabeledField(
@@ -159,6 +207,61 @@ private fun ComposerCard(
         }
         EdgeSpacer(EdgeDimens.spacingXs)
 
+        // DOCUMENT type: real system file picker (SAF) for the supported
+        // document types (PDF / TXT / MD) the ingestion pipeline can extract.
+        if (state.type == MemoryType.DOCUMENT) {
+            Text("DOCUMENT", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            EdgeSpacer(EdgeDimens.spacingXs)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+            ) {
+                PillButton(
+                    text = "Select document",
+                    onClick = onPickDocument,
+                    enabled = !state.isBusy,
+                    modifier = Modifier.testTag("edge-create-select-document"),
+                )
+                TonalPill(
+                    text = if (state.documentName != null) "Change" else "Cancel",
+                    onClick = if (state.documentName != null) onPickDocument else viewModel::onDocumentClear,
+                )
+            }
+            EdgeSpacer(EdgeDimens.spacingXs)
+            // Honest status of the picked/ingesting document.
+            val label = when {
+                state.documentName != null -> state.documentName!!
+                state.documentUri != null -> "Selected document"
+                else -> "No document selected"
+            }
+            Text(
+                text = label,
+                style = EdgeType.metadata,
+                color = if (state.documentName != null) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("edge-create-document-name"),
+            )
+            state.ingestionStage?.let { stage ->
+                if (stage != com.example.EdgeMemo.domain.document.IngestionStage.IDLE &&
+                    stage != com.example.EdgeMemo.domain.document.IngestionStage.COMPLETED
+                ) {
+                    EdgeSpacer(EdgeDimens.spacingXs)
+                    Text(
+                        text = "Ingesting \u00B7 ${stage.name.lowercase()}",
+                        style = EdgeType.metadata,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("edge-create-ingestion-stage"),
+                    )
+                }
+            }
+            EdgeSpacer(EdgeDimens.spacingXs)
+        }
+
         Text("SYNC", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -180,9 +283,9 @@ private fun ComposerCard(
             horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
         ) {
             PillButton(
-                text = if (state.submitting) "Saving…" else "Save to memory",
+                text = if (state.isBusy) "Saving…" else "Save to memory",
                 onClick = viewModel::submit,
-                enabled = !state.submitting && state.isFormValid,
+                enabled = !state.isBusy && state.isFormValid,
                 modifier = Modifier.testTag("edge-create-submit"),
             )
             TonalPill(text = "Cancel", onClick = viewModel::cancel)
@@ -200,7 +303,10 @@ private fun ComposerCard(
 @Composable
 private fun CreatedConfirmationCard(
     memory: Memory,
+    isDocument: Boolean,
+    chunkCount: Int?,
     onContinue: () -> Unit,
+    onAddAnother: () -> Unit,
 ) {
     EdgeCard(modifier = Modifier.fillMaxWidth().testTag("edge-create-record-created")) {
         TechLabel(text = "RECORD CREATED", color = MaterialTheme.colorScheme.primary)
@@ -257,16 +363,36 @@ private fun CreatedConfirmationCard(
                 )
             }
         }
-        EdgeSpacer(EdgeDimens.spacingM)
+        EdgeSpacer(EdgeDimens.spacingXs)
 
-        Text(
-            text = "The asset \"${CreateRecordModel.namespaceOf(memory.subjectKey ?: "")}\" is now available in Machines.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (isDocument && chunkCount != null) {
+            Text(
+                text = "Ingested $chunkCount searchable ${if (chunkCount == 1) "chunk" else "chunks"} " +
+                    "through the local document pipeline.",
+                style = EdgeType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("edge-create-document-summary"),
+            )
+        } else {
+            Text(
+                text = "The asset \"${CreateRecordModel.namespaceOf(memory.subjectKey ?: "")}\" is now available in Machines.",
+                style = EdgeType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         EdgeSpacer(EdgeDimens.spacingS)
 
-        PillButton(text = "Open asset", onClick = onContinue, modifier = Modifier.testTag("edge-create-open-asset"))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+        ) {
+            PillButton(text = "Open asset", onClick = onContinue, modifier = Modifier.testTag("edge-create-open-asset"))
+            TonalPill(
+                text = "Add another record",
+                onClick = onAddAnother,
+                modifier = Modifier.testTag("edge-create-add-another"),
+            )
+        }
     }
 }
 

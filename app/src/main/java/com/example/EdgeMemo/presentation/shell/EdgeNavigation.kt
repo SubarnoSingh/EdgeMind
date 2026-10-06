@@ -92,6 +92,15 @@ class EdgeNavigator {
     private val _askAsset = MutableStateFlow<String?>(null)
     val askAsset: StateFlow<String?> = _askAsset.asStateFlow()
 
+    /**
+     * Machine-scoped record-capture context (set when the Add Machine flow hands
+     * off to the record composer). Lives on the navigator like [askAsset] so the
+     * shared CreateRecord screen can lock its subject to this machine's namespace
+     * without a second capture surface or data through composable arguments.
+     */
+    private val _machineCapture = MutableStateFlow<MachineCapture?>(null)
+    val machineCapture: StateFlow<MachineCapture?> = _machineCapture.asStateFlow()
+
     val current: EdgeRoute get() = stack.last()
 
     val currentTab: EdgeTab?
@@ -112,6 +121,7 @@ class EdgeNavigator {
 
     fun select(tab: EdgeTab) {
         if (tab == EdgeTab.ASK) _askAsset.value = null
+        _machineCapture.value = null
         stack.clear()
         stack.addLast(
             when (tab) {
@@ -165,9 +175,38 @@ class EdgeNavigator {
     fun openConflict(conflictId: String) = push(EdgeRoute.ConflictDetail(conflictId))
 
     /** Open the generic record creation screen (empty-state entry point). */
-    fun openCreateRecord() = push(EdgeRoute.CreateRecord)
+    fun openCreateRecord() {
+        _machineCapture.value = null
+        push(EdgeRoute.CreateRecord)
+    }
+
+    /**
+     * Open the SAME record composer, but locked to a machine's namespace so the
+     * just-created machine can receive its initial records (Observation / Repair
+     * / Event / Procedure / Document) before leaving the workflow.
+     */
+    fun openCreateRecordForMachine(subject: String, displayName: String) {
+        _machineCapture.value = MachineCapture(subject, displayName)
+        push(EdgeRoute.CreateRecord)
+    }
+
+    /** Clear the capture context, leave the composer, and open the machine. */
+    fun finishMachineCaptureOpenMachine(subject: String) {
+        _machineCapture.value = null
+        pop() // leave the CreateRecord route first
+        push(EdgeRoute.MachineDetail(subject))
+    }
+
+    /** Cancel machine capture: clear context and return to the previous route. */
+    fun cancelMachineCapture() {
+        _machineCapture.value = null
+        pop()
+    }
 
     private fun publish() {
         _route.value = stack.last()
     }
 }
+
+/** Machine namespace + label a record-capture session is locked to. */
+data class MachineCapture(val subject: String, val displayName: String)

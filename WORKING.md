@@ -2052,6 +2052,72 @@ Fixes the UX dead-end on fresh installation: no records → no assets → no way
 - E2E Compose test timing: 3 pre-existing tests fail due to Robolectric rendering timing (not related to this change).
 - No structured maintenance form (deferred).
 
+## Machines screen — "Add Machine" flow (current, uncommitted)
+
+Users can now create a new machine/asset from the Machines tab and immediately
+capture its initial records without leaving the workflow.
+
+### Implemented
+
+- **ID normalization (single canonical rule):** `AssetModel.canonicalAssetToken`
+  case-folds and strips every non-alphanumeric (hyphen, space, slash,
+  punctuation), so `P-102`, `P102`, `p 102`, `P.102` all map to `p102`. The old
+  collapse-to-hyphen rule left `P102` and `P-102` as two machines — that is
+  fixed. `MachinesViewModel.machineIdToken` delegates to this one rule.
+- **Safe duplicate/collision detection:** before creating, the machine's
+  canonical token is compared against every existing asset namespace's
+  canonical form. Exact duplicates and cross-format collisions (e.g. creating
+  `P-101`, which canonically matches the existing demo namespace `p-101`) are
+  REJECTED with an explicit message. No existing record is ever merged,
+  overwritten, or deleted; nothing is created on collision.
+- **Machine creation:** persists ONE real definition record via
+  `CreateMemoryUseCase` — `type=NOTE`, `subjectKey="<canonical>/machine"`,
+  metadata `assetKind=machine`, `SyncDecision.LOCAL_ONLY` (never enters the
+  outbox). `AssetModel.deriveAssets` treats the definition as asset identity,
+  `recordsFor` excludes it from activity so the machine starts empty.
+- **Post-create choice:** the created card offers **Add initial record** or
+  **Skip for now**.
+  - *Add initial record* → `navigator.openCreateRecordForMachine(subject, name)`
+    sets a machine-capture context on the navigator (the Ask-style pattern) and
+    opens the EXISTING record composer, LOCKED to the new machine's namespace.
+    A fresh, correctly-keyed `CreateRecordViewModel` is created per machine.
+  - *Skip for now* → `skipInitialRecords()` opens the machine detail (empty).
+- **Machine-locked capture (`CreateRecordViewModel` / `CreateRecordScreen`):**
+  when `initialSubject` is supplied the subject is prefilled and locked (shown
+  read-only, edits ignored), the default type is OBSERVATION, and all five
+  record types are available — Observation / Repair / Event / Procedure via
+  `CreateMemoryUseCase`, and **Document** through the EXISTING file picker +
+  ingestion pipeline. Every record uses `subjectKey="<canonical>/<type>"`, so
+  records stay isolated to that machine (P-102 never appears under P-101).
+  "Add another record" supports consecutive captures; "Open asset" calls
+  `finishMachineCaptureOpenMachine(subject)` which clears the context and lands
+  on the machine detail with the new records visible; Cancel clears the context.
+- **Document isolation:** `DocumentIngestionService.ingest` and
+  `IngestDocumentUseCase.invoke` gained an OPTIONAL `subjectKey` (default null →
+  unchanged prior behavior). In machine capture the machine namespace is passed,
+  so every ingested chunk carries `"<canonical>/document"` and is retrievable
+  under that machine after restart (`subjectKey` round-trips through
+  `MemoryRecordMapper` → Qdrant Edge).
+- **Tests:** canonical-rule, definition-persistence, activity-isolation,
+  duplicate rejection, cross-format-collision (no merge), add-initial-record
+  navigation, skip-for-now navigation, definition-exclusion, and machine-locked
+  composer behavior (prefill, edit-ignored, namespace, finish/cancel clearing).
+
+### Tests
+
+- Focused unit tests pass (OperationalActivityPhase5Test, AssetWorkspacePhase3Test,
+  EdgeShellViewModelsTest, DocumentIngestionServiceTest).
+- Full unit suite: 601 tests, only the 3 pre-existing Robolectric E2E timing
+  failures remain (Compose timeout / duplicate-node scroll / UUID tag flake) —
+  unchanged from the clean baseline and unrelated to this workflow.
+- Lint: BUILD SUCCESSFUL. AssembleDebug: BUILD SUCCESSFUL.
+
+### Known limitations
+
+- No confirmation dialog before creating; the created-card choice is the gate.
+- The machine-definition record appears as a NOTE in the global Memory screen
+  (real record; hiding it is a later-phase concern).
+
 ## NOT IMPLEMENTED (later phases)
 
 - Qdrant payload handling in the native boundary (currently empty `{}` payload;

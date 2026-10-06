@@ -39,6 +39,7 @@ object EdgeUiTags {
     const val OPEN_CONFLICTS = "edge-open-conflicts"
     const val OPEN_ASK = "edge-open-ask"
     const val MACHINE_CARD_PREFIX = "edge-machine-card-"
+    const val MACHINE_CARD_STATUS_PREFIX = "edge-machine-card-status-"
     const val RECENT_CARD_PREFIX = "edge-recent-card-"
 }
 

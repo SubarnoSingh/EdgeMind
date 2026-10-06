@@ -69,12 +69,14 @@ class OperationalActivityPhase5Test {
         var createGate: CompletableDeferred<Unit>? = null
         var createCalls = 0
         var lastInput: CreateMemoryInput? = null
+        val subjectKeys = mutableListOf<String?>()
 
         override suspend fun create(input: CreateMemoryInput): Memory {
             createCalls += 1
             createGate?.await()
             if (failWrite) error("local write failed")
             lastInput = input
+            subjectKeys += input.subjectKey
             val state = if (input.userSyncChoice == SyncDecision.SYNC) {
                 MemorySyncState.PENDING
             } else {
@@ -89,7 +91,7 @@ class OperationalActivityPhase5Test {
                 updatedAt = 10_000L + createCalls,
                 syncState = state,
                 syncDecision = input.userSyncChoice ?: SyncDecision.LOCAL_ONLY,
-            ).also(records::add)
+            ).copy(tags = input.tags, metadata = input.metadata).also(records::add)
         }
 
         override suspend fun createAll(
@@ -315,6 +317,88 @@ class OperationalActivityPhase5Test {
     }
 
     @Test
+    fun addComposerStaysAvailableAndSupportsRepeatedAddsOnTheSameMachine() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val viewModel = viewModel(repository)
+        advanceUntilIdle()
+
+        // First observation saved on an asset with no prior records.
+        viewModel.openObservationComposer()
+        viewModel.onComposerTitleChange("First observation")
+        viewModel.onComposerContentChange("Seal weep at 1200h.")
+        viewModel.submitComposer()
+        advanceUntilIdle()
+
+        // The reusable form must STAY open (add action never disappears) with a
+        // cleared title/content plus an honest confirmation, not a collapsed
+        // one-shot state that hides the add UI.
+        val afterFirst = viewModel.uiState.value.composer
+        assertTrue("composer stays open after save", afterFirst.open)
+        assertTrue("form cleared for the next record", afterFirst.title.isEmpty() && afterFirst.content.isEmpty())
+        assertEquals("Saved to local memory for P101.", afterFirst.createdMessage)
+
+        // Second record: a different type on the SAME machine, without leaving.
+        viewModel.onComposerTypeChange(MemoryType.EVENT)
+        viewModel.onComposerTitleChange("Dry-run event")
+        viewModel.onComposerContentChange("Short dry run during test.")
+        viewModel.submitComposer()
+        advanceUntilIdle()
+
+        // Third record: switch type again and add a procedure.
+        viewModel.onComposerTypeChange(MemoryType.PROCEDURE)
+        viewModel.onComposerTitleChange("Restart procedure")
+        viewModel.onComposerContentChange("Verify submergence before restart.")
+        viewModel.submitComposer()
+        advanceUntilIdle()
+
+        // Every add went through the production create path (three writes).
+        assertEquals(3, repository.createCalls)
+        assertEquals(listOf("p101/observation", "p101/event", "p101/procedure"), repository.subjectKeys)
+
+        // All three real records are present under the machine's categories.
+        val data = (viewModel.uiState.value.data as LoadableState.Ready).value
+        assertEquals(1, data.observationRecords.size)
+        assertEquals(1, data.incidentRecords.size)
+        assertEquals(1, data.procedureRecords.size)
+        assertEquals(3, data.records.size)
+    }
+
+    @Test
+    fun logEventAndProcedureUseTheSameProductionBoundary() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val viewModel = viewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.openEventComposer()
+        assertEquals(MemoryType.EVENT, viewModel.uiState.value.composer.type)
+        viewModel.onComposerContentChange("Bearings ran hot during shift.")
+        viewModel.submitComposer()
+        advanceUntilIdle()
+        assertEquals("p101/event", repository.lastInput?.subjectKey)
+
+        viewModel.openProcedureComposer()
+        assertEquals(MemoryType.PROCEDURE, viewModel.uiState.value.composer.type)
+        viewModel.onComposerContentChange("Isolate, then drain before opening the casing.")
+        viewModel.submitComposer()
+        advanceUntilIdle()
+        assertEquals("p101/procedure", repository.lastInput?.subjectKey)
+
+        assertEquals(2, repository.createCalls)
+    }
+
+    @Test
+    fun cancelComposerClosesTheReusableForm() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val viewModel = viewModel(repository)
+        advanceUntilIdle()
+        viewModel.openObservationComposer()
+        viewModel.onComposerTitleChange("Draft")
+        viewModel.closeComposer()
+        assertFalse(viewModel.uiState.value.composer.open)
+        assertEquals(0, repository.createCalls)
+    }
+
+    @Test
     fun realRecordConflictIsJoinedOnceAndRoutesToPhase4Detail() = runTest(dispatcher) {
         val navigator = EdgeNavigator().also {
             it.select(EdgeTab.MACHINES)
@@ -403,6 +487,215 @@ class OperationalActivityPhase5Test {
             .walkTopDown().filter { it.extension == "kt" }.joinToString("\n") { it.readText() }
         assertEquals(1, Regex("\\\"qdrant_sync_store\\\"").findAll(mainSources).count())
         assertEquals(0, Regex("\\\"local_qdrant\\\"").findAll(mainSources).count())
+    }
+
+    // ── Add Machine (real asset creation through the production record path) ──
+
+    private fun machinesViewModel(
+        repository: FakeMemoryRepository,
+        conflicts: FakeConflictRepository = FakeConflictRepository(),
+        navigator: EdgeNavigator = EdgeNavigator(),
+    ): MachinesViewModel = MachinesViewModel(
+        listMemories = ListMemoriesUseCase(repository),
+        listConflicts = ListConflictsUseCase(conflicts),
+        createMemory = CreateMemoryUseCase(repository),
+        navigator = navigator,
+    )
+
+    @Test
+    fun machineIdTokenAppliesOneCanonicalRuleAcrossHyphensAndCase() {
+        // P102 and P-102 (and p 102 / P.102) MUST collapse to one token so the
+        // UI can no longer show them as two machines.
+        assertEquals("p102", MachinesViewModel.machineIdToken("  P-102  "))
+        assertEquals("p102", MachinesViewModel.machineIdToken("P102"))
+        assertEquals("p102", MachinesViewModel.machineIdToken("P 102"))
+        assertEquals("p102", MachinesViewModel.machineIdToken("p/102"))
+        assertEquals("p102", MachinesViewModel.machineIdToken("P.102"))
+        assertEquals("lineb", MachinesViewModel.machineIdToken("Line/B"))
+        assertNull(MachinesViewModel.machineIdToken("   "))
+        assertNull(MachinesViewModel.machineIdToken("///"))
+        assertNull(MachinesViewModel.machineIdToken("###"))
+        // AssetModel exposes the same single rule.
+        assertEquals("p102", AssetModel.canonicalAssetToken("P-102"))
+        assertEquals("p102", AssetModel.canonicalAssetToken("P102"))
+    }
+
+    @Test
+    fun addMachinePersistsRealDefinitionRecordUnderMachineNamespace() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val vm = machinesViewModel(repository)
+        advanceUntilIdle()
+
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-102")
+        vm.onMachineNameChange("Coolant pump")
+        vm.addMachine()
+        advanceUntilIdle()
+
+        // Exactly one REAL record was written through the production path.
+        assertEquals(1, repository.records.size)
+        val definition = repository.records.single()
+        assertEquals("p102/machine", definition.subjectKey)
+        assertEquals("machine", definition.metadata["assetKind"])
+        assertEquals(MemoryType.NOTE, definition.type)
+        assertEquals("Coolant pump", definition.title)
+        // A machine definition is operational-local: it must never enter outbox.
+        assertEquals(SyncDecision.LOCAL_ONLY, definition.syncDecision)
+        assertEquals(MemorySyncState.LOCAL, definition.syncState)
+
+        // Success collapses the form into the initial-record choice and the
+        // list now contains the asset with NO activity yet.
+        val creation = vm.creation.value
+        assertEquals("p102", creation.createdId)
+        assertEquals("Coolant pump", creation.createdName)
+        assertFalse(creation.open)
+        val asset = (vm.uiState.value as LoadableState.Ready).value.single()
+        assertEquals("p102", asset.namespace)
+        assertEquals("Coolant pump", asset.representativeTitle)
+        assertEquals(0, asset.recordCount)
+    }
+
+    @Test
+    fun createdMachineActivityRecordsStayIsolatedFromOtherMachines() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        repository.records += memory("p101-a", subjectKey = "p-101/torque", type = MemoryType.REPAIR)
+        val vm = machinesViewModel(repository)
+        advanceUntilIdle()
+
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-102")
+        vm.addMachine()
+        advanceUntilIdle()
+
+        // Later capture against the new machine namespace (bypassing the UI).
+        repository.records += memory(
+            "p102-a", title = "Overheating", subjectKey = "p102/observation",
+            type = MemoryType.OBSERVATION,
+        )
+        vm.refresh()
+        advanceUntilIdle()
+
+        val assets = (vm.uiState.value as LoadableState.Ready).value.associateBy { it.namespace }
+        assertEquals(listOf("p-101", "p102"), assets.keys.sorted())
+        assertEquals(1, assets.getValue("p-101").recordCount)
+        // The machine-definition record is NOT counted as p102 activity.
+        assertEquals(1, assets.getValue("p102").recordCount)
+
+        // Activity timelines never cross namespaces.
+        assertEquals(
+            listOf("p102-a"),
+            AssetModel.recordsFor(repository.records, "p102").map { it.memoryId },
+        )
+        assertEquals(
+            listOf("p101-a"),
+            AssetModel.recordsFor(repository.records, "p-101").map { it.memoryId },
+        )
+    }
+
+    @Test
+    fun addMachineRejectsBlankAndCanonicalDuplicateIds() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val vm = machinesViewModel(repository)
+        advanceUntilIdle()
+
+        // Blank id: nothing persisted, inline error surfaced.
+        vm.openAddMachine()
+        vm.onMachineIdChange("   ")
+        vm.addMachine()
+        advanceUntilIdle()
+        assertTrue(repository.records.isEmpty())
+        assertNotNull(vm.creation.value.error)
+
+        // First valid create.
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-102")
+        vm.addMachine()
+        advanceUntilIdle()
+        assertEquals(1, repository.records.size)
+
+        // "P102" is the SAME machine under the canonical rule → rejected, never
+        // double-written (this is the reported P102 vs P-102 duplicate bug).
+        vm.openAddMachine()
+        vm.onMachineIdChange("P102")
+        vm.addMachine()
+        advanceUntilIdle()
+        assertNotNull(vm.creation.value.error)
+        assertEquals(1, repository.records.size)
+    }
+
+    @Test
+    fun addMachineReportsCollisionWithExistingHyphenatedMachineWithoutMerging() = runTest(dispatcher) {
+        // Existing demo-style hyphenated namespace p-101 (untouched).
+        val repository = FakeMemoryRepository()
+        repository.records += memory("seed", subjectKey = "p-101/torque", type = MemoryType.REPAIR)
+        val vm = machinesViewModel(repository)
+        advanceUntilIdle()
+        val before = repository.records.size
+
+        // Creating "P-101" canonicalizes to p101 which maps onto p-101. It must
+        // be refused safely — no merge, no new record, existing data preserved.
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-101")
+        vm.addMachine()
+        advanceUntilIdle()
+
+        assertNotNull(vm.creation.value.error)
+        assertEquals(before, repository.records.size) // nothing written
+        assertTrue(vm.uiState.value.let { (it as LoadableState.Ready).value.map { a -> a.namespace } } == listOf("p-101"))
+    }
+
+    @Test
+    fun addInitialRecordOpensMachineLockedCapture() = runTest(dispatcher) {
+        val navigator = EdgeNavigator()
+        val repository = FakeMemoryRepository()
+        val vm = machinesViewModel(repository, navigator = navigator)
+        advanceUntilIdle()
+
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-102")
+        vm.onMachineNameChange("Coolant pump")
+        vm.addMachine()
+        advanceUntilIdle()
+
+        vm.addInitialRecord()
+        assertEquals(EdgeRoute.CreateRecord, navigator.current)
+        val capture = navigator.machineCapture.value
+        assertEquals("p102", capture?.subject)
+        assertEquals("Coolant pump", capture?.displayName)
+    }
+
+    @Test
+    fun skipForNowOpensTheNewMachineDetailEmpty() = runTest(dispatcher) {
+        val navigator = EdgeNavigator()
+        val repository = FakeMemoryRepository()
+        val vm = machinesViewModel(repository, navigator = navigator)
+        advanceUntilIdle()
+
+        vm.openAddMachine()
+        vm.onMachineIdChange("P-102")
+        vm.addMachine()
+        advanceUntilIdle()
+
+        vm.skipInitialRecords()
+        assertEquals(EdgeRoute.MachineDetail("p102"), navigator.current)
+        assertNull(vm.creation.value.createdId) // form reset
+    }
+
+    @Test
+    fun machineDefinitionRecordIsExcludedFromActivityTimelineButDerivesAsset() {
+        val definition = memory(
+            "def-1", title = "Coolant pump", subjectKey = "p102/machine",
+            type = MemoryType.NOTE,
+        ).copy(metadata = mapOf(AssetModel.MACHINE_METADATA_KEY to AssetModel.MACHINE_METADATA_VALUE))
+
+        assertTrue(AssetModel.isMachineDefinition(definition))
+        // Excluded from activity records.
+        assertTrue(AssetModel.recordsFor(listOf(definition), "p102").isEmpty())
+        // Still derives the asset so the machine exists in the list.
+        val assets = AssetModel.deriveAssets(listOf(definition))
+        assertEquals(listOf("p102"), assets.map { it.namespace })
+        assertEquals(0, assets.single().recordCount)
+        assertEquals("Coolant pump", assets.single().representativeTitle)
     }
 
     private companion object {
@@ -570,5 +863,159 @@ class CreateRecordViewModelInitializationTest {
         assertNotNull(ready.value)
         assertEquals("Test Record", (ready.value as Memory).title)
         assertEquals("p-101/note", (ready.value as Memory).subjectKey)
+    }
+
+    @Test
+    fun documentPickerCancelIsANoOpKeepingCurrentState() = runTest(dispatcher) {
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(FakeMemoryRepository()),
+            navigator = EdgeNavigator(),
+        )
+        viewModel.onSubjectChange("P-101")
+        viewModel.onTypeChange(MemoryType.DOCUMENT)
+
+        // The system file picker returns null when the user cancels.
+        viewModel.onDocumentPicked(null)
+        advanceUntilIdle()
+
+        // Cancel must not error, must not select a document, must not change type.
+        assertNull(viewModel.uiState.value.documentUri)
+        assertNull(viewModel.uiState.value.error)
+        assertEquals(MemoryType.DOCUMENT, viewModel.uiState.value.type)
+    }
+
+    @Test
+    fun documentSubmitWithoutFileAsksForDocumentOrText() = runTest(dispatcher) {
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(FakeMemoryRepository()),
+            navigator = EdgeNavigator(),
+        )
+        viewModel.onSubjectChange("P-101")
+        viewModel.onTypeChange(MemoryType.DOCUMENT)
+        // No document and no text → invalid, with a document-aware message.
+        assertFalse(viewModel.uiState.value.isFormValid)
+
+        viewModel.submit()
+        advanceUntilIdle()
+        assertEquals(
+            "Select a document, or provide a title or description.",
+            viewModel.uiState.value.error,
+        )
+    }
+
+    @Test
+    fun documentTypeWithoutFileFallsBackToTextRecordThroughProductionPath() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(repository),
+            navigator = EdgeNavigator(),
+            // No documentReader/ingestDocument: the text-only path must still work.
+        )
+        viewModel.onSubjectChange("P-101")
+        viewModel.onTypeChange(MemoryType.DOCUMENT)
+        viewModel.onTitleChange("Torque spec note")
+        viewModel.onContentChange("Re-torque casing bolts to 42 Nm.")
+
+        viewModel.submit()
+        advanceUntilIdle()
+
+        val created = (viewModel.uiState.value.data as LoadableState.Ready<*>).value as Memory
+        assertEquals(MemoryType.DOCUMENT, created.type)
+        assertEquals("p-101/document", created.subjectKey)
+    }
+
+    @Test
+    fun addAnotherResetsTheFormAndKeepsTheSubjectContext() = runTest(dispatcher) {
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(FakeMemoryRepository()),
+            navigator = EdgeNavigator(),
+        )
+        viewModel.onSubjectChange("P-101")
+        viewModel.onTitleChange("One")
+        viewModel.onContentChange("Body")
+        viewModel.submit()
+        advanceUntilIdle()
+
+        viewModel.onAddAnother()
+
+        val state = viewModel.uiState.value
+        assertNull(state.createdMemory)
+        assertEquals(LoadableState.Ready<Memory?>(null), state.data)
+        assertEquals("", state.title)
+        assertEquals("", state.content)
+        assertNull(state.documentUri)
+    }
+
+    // ── Machine-scoped capture (Add Machine → initial records) ──
+
+    @Test
+    fun lockedCapturePrefillsSubjectAndDefaultsToObservation() = runTest(dispatcher) {
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(FakeMemoryRepository()),
+            navigator = EdgeNavigator(),
+            initialSubject = "p102",
+            machineName = "Coolant pump",
+        )
+        val state = viewModel.uiState.value
+        assertTrue(state.subjectLocked)
+        assertEquals("p102", state.subject)
+        assertEquals("Coolant pump", state.machineName)
+        assertEquals(MemoryType.OBSERVATION, state.type)
+        // Subject is already satisfied, but a title/content is still required.
+        assertFalse(state.isFormValid)
+        viewModel.onTitleChange("Vibration check")
+        assertTrue(viewModel.uiState.value.isFormValid)
+    }
+
+    @Test
+    fun lockedCaptureIgnoresSubjectEditsAndWritesUnderTheMachineNamespace() = runTest(dispatcher) {
+        val repository = FakeMemoryRepository()
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(repository),
+            navigator = EdgeNavigator(),
+            initialSubject = "p102",
+        )
+        // Attempting to retarget the subject must be ignored (isolation guard).
+        viewModel.onSubjectChange("P-101")
+        assertEquals("p102", viewModel.uiState.value.subject)
+
+        viewModel.onTitleChange("Bearing noise")
+        viewModel.submit()
+        advanceUntilIdle()
+
+        val created = (viewModel.uiState.value.data as LoadableState.Ready<*>).value as Memory
+        assertEquals("p102/observation", created.subjectKey)
+    }
+
+    @Test
+    fun lockedCaptureFinishOpensTheMachineAndClearsContext() = runTest(dispatcher) {
+        val navigator = EdgeNavigator()
+        navigator.openCreateRecordForMachine("p102", "Coolant pump")
+        val repository = FakeMemoryRepository()
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(repository),
+            navigator = navigator,
+            initialSubject = "p102",
+        )
+        viewModel.onTitleChange("First note")
+        viewModel.submit()
+        advanceUntilIdle()
+
+        viewModel.onCreatedAcknowledged()
+        assertEquals(EdgeRoute.MachineDetail("p102"), navigator.current)
+        assertNull(navigator.machineCapture.value)
+    }
+
+    @Test
+    fun lockedCaptureCancelClearsContext() = runTest(dispatcher) {
+        val navigator = EdgeNavigator()
+        navigator.openCreateRecordForMachine("p102", "Coolant pump")
+        val viewModel = CreateRecordViewModel(
+            createMemory = CreateMemoryUseCase(FakeMemoryRepository()),
+            navigator = navigator,
+            initialSubject = "p102",
+        )
+        viewModel.cancel()
+        assertNull(navigator.machineCapture.value)
     }
 }

@@ -22,11 +22,15 @@ import kotlinx.coroutines.launch
 class MachinesViewModel(
     private val listMemories: ListMemoriesUseCase,
     private val listConflicts: ListConflictsUseCase,
+    private val createMemory: CreateMemoryUseCase,
     val navigator: EdgeNavigator,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LoadableState<List<Asset>>>(LoadableState.Loading)
     val uiState: StateFlow<LoadableState<List<Asset>>> = _uiState.asStateFlow()
+
+    private val _creation = MutableStateFlow(AddMachineState())
+    val creation: StateFlow<AddMachineState> = _creation.asStateFlow()
 
     init {
         refresh()
@@ -56,7 +60,140 @@ class MachinesViewModel(
     }
 
     fun openAsset(namespace: String) = navigator.openMachine(namespace)
+
+    // ── Add Machine (real asset creation through the production record path) ──
+
+    fun onMachineIdChange(value: String) {
+        _creation.update { it.copy(id = value, error = null) }
+    }
+
+    fun onMachineNameChange(value: String) {
+        _creation.update { it.copy(name = value, error = null) }
+    }
+
+    fun openAddMachine() {
+        _creation.update { AddMachineState(open = true) }
+    }
+
+    fun closeAddMachine() {
+        _creation.update { AddMachineState() }
+    }
+
+    /**
+     * Creates a machine/asset by persisting a real definition RECORD through the
+     * production [CreateMemoryUseCase] (Qdrant-backed). The record's subject key
+     * is `<canonical-token>/machine`, so [AssetModel.namespaceOf] derives the
+     * asset namespace from the machine id — the same mechanism the whole app
+     * already uses. Arbitrary ids are supported (P-102, P-201, …); nothing is
+     * hardcoded and no separate machine store is introduced. The definition
+     * record is excluded from timelines/counts, so the new machine opens with an
+     * EMPTY activity view, and records later captured under its namespace stay
+     * isolated from other machines. On success the caller is offered "Add
+     * initial record" or "Skip for now".
+     */
+    fun addMachine() {
+        val current = _creation.value
+        if (current.submitting) return
+        val idToken = machineIdToken(current.id)
+        if (idToken == null) {
+            _creation.update { it.copy(error = "A machine/asset ID is required (letters or digits).") }
+            return
+        }
+        // Reject duplicates / collisions BEFORE creating — never merge, never
+        // delete existing records. The canonical rule makes P102 and P-102 the
+        // same machine, and also catches a new id that maps onto an existing
+        // (possibly hyphenated) namespace such as the p-101 demo.
+        findExistingNamespace(idToken)?.let { existing ->
+            val shown = existing.uppercase()
+            val message = if (existing == idToken) {
+                "A machine with ID “$shown” already exists. Open it to add records."
+            } else {
+                "“${idToken.uppercase()}” is the same machine as the existing “$shown”. " +
+                    "No duplicate was created — add records to “$shown” instead."
+            }
+            _creation.update { it.copy(error = message) }
+            return
+        }
+        _creation.update { it.copy(submitting = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val label = current.name.trim()
+                createMemory(
+                    CreateMemoryInput(
+                        title = label.ifEmpty { idToken.uppercase() },
+                        content = label.ifEmpty { "Machine/asset $idToken." },
+                        type = MemoryType.NOTE,
+                        tags = listOf(AssetModel.MACHINE_METADATA_VALUE),
+                        subjectKey = AssetModel.machineDefinitionSubjectKey(idToken),
+                        metadata = mapOf(
+                            AssetModel.MACHINE_METADATA_KEY to AssetModel.MACHINE_METADATA_VALUE,
+                        ),
+                        // An asset definition is on-device operational metadata:
+                        // keep it local so it never enters the sync outbox.
+                        userSyncChoice = com.example.EdgeMemo.core.model.SyncDecision.LOCAL_ONLY,
+                    ),
+                )
+                _creation.update {
+                    AddMachineState(createdId = idToken, createdName = label.ifEmpty { null })
+                }
+                refresh()
+            } catch (e: Exception) {
+                _creation.update {
+                    it.copy(
+                        submitting = false,
+                        error = e.message ?: "the machine could not be created",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Offers the just-created machine for immediate capture: opens the EXISTING
+     * record composer (which supports Observation / Repair / Event / Procedure /
+     * Document + the ingestion pipeline), locked to this machine's namespace so
+     * every initial record stays isolated.
+     */
+    fun addInitialRecord() {
+        val token = _creation.value.createdId ?: return
+        val displayName = _creation.value.createdName ?: token.uppercase()
+        navigator.openCreateRecordForMachine(subject = token, displayName = displayName)
+    }
+
+    /** "Skip for now" — open the new machine's (empty) detail screen. */
+    fun skipInitialRecords() {
+        val token = _creation.value.createdId ?: return
+        closeAddMachine()
+        openAsset(token)
+    }
+
+    private fun findExistingNamespace(idToken: String): String? =
+        (uiState.value as? LoadableState.Ready)?.value
+            ?.map { it.namespace }
+            ?.firstOrNull { AssetModel.canonicalAssetToken(it) == idToken }
+
+    companion object {
+        /**
+         * Normalizes free-typed machine id text into the single canonical
+         * subject-key token (the asset namespace) used for both creation and
+         * duplicate detection. See [AssetModel.canonicalAssetToken].
+         */
+        fun machineIdToken(raw: String): String? = AssetModel.canonicalAssetToken(raw)
+    }
 }
+
+/** Transient state for the Add Machine form on the Machines screen. */
+data class AddMachineState(
+    val open: Boolean = false,
+    val id: String = "",
+    val name: String = "",
+    val submitting: Boolean = false,
+    val error: String? = null,
+    /** Canonical namespace token of the machine just created (drives the choice). */
+    val createdId: String? = null,
+    /** Optional human name for the just-created machine. */
+    val createdName: String? = null,
+)
 
 /** Detail data for one derived asset: real records only. */
 data class MachineDetailData(
@@ -126,7 +263,25 @@ data class AssetComposerState(
     val createdMessage: String? = null,
     /** Sync state returned by the real production create call. */
     val createdSyncState: com.example.EdgeMemo.core.model.MemorySyncState? = null,
-)
+    /**
+     * True while the composer is shown as a reusable, always-available form:
+     * after a successful save the fields clear but the form stays open so more
+     * evidence can be added to the same machine without re-entering the screen.
+     */
+    val keepOpenAfterSave: Boolean = false,
+) {
+    /**
+     * The asset record types a technician can capture on this machine. Kept in
+     * the presentation layer only; each maps to an existing [MemoryType] that
+     * the production `CreateMemoryUseCase` already persists.
+     */
+    val assetRecordTypes: List<MemoryType> = listOf(
+        MemoryType.OBSERVATION,
+        MemoryType.REPAIR,
+        MemoryType.EVENT,
+        MemoryType.PROCEDURE,
+    )
+}
 
 /**
  * UI Phase 3 — the asset workspace state. One immutable flow; every field
@@ -172,12 +327,17 @@ class MachineDetailViewModel(
                     AssetModel.namespaceOf(it.subjectKey) == namespace &&
                         it.state == com.example.EdgeMemo.domain.conflict.ConflictResolutionState.UNRESOLVED
                 }
+                val assets = AssetModel.deriveAssets(memories)
                 if (records.isEmpty()) {
+                    // A machine that exists only as a definition (freshly added,
+                    // no activity yet) still resolves through deriveAssets so its
+                    // real name is preserved; otherwise fall back to the namespace.
+                    val definedAsset = assets.firstOrNull { it.namespace == namespace }
                     _uiState.update {
                         it.copy(
                             data = LoadableState.Ready(
                                 MachineDetailData(
-                                    asset = Asset(
+                                    asset = (definedAsset ?: Asset(
                                         namespace = namespace,
                                         recordCount = 0,
                                         lastActivityAt = 0L,
@@ -186,7 +346,7 @@ class MachineDetailViewModel(
                                         pendingSyncCount = 0,
                                         unresolvedConflictCount = 0L,
                                         types = emptyList(),
-                                    ),
+                                    )).copy(unresolvedConflictCount = unresolvedConflicts.size.toLong()),
                                     records = emptyList(),
                                     conflictCount = unresolvedConflicts.size.toLong(),
                                     conflicts = unresolvedConflicts,
@@ -196,7 +356,6 @@ class MachineDetailViewModel(
                     }
                     return@launch
                 }
-                val assets = AssetModel.deriveAssets(memories)
                 val asset = assets.first { it.namespace == namespace }
                 _uiState.update {
                     it.copy(
@@ -259,10 +418,18 @@ class MachineDetailViewModel(
                 composer = AssetComposerState(
                     open = true,
                     type = type,
+                    // Reusable form: stays available after each save so more
+                    // evidence can be captured on the same machine.
+                    keepOpenAfterSave = true,
                 ),
             )
         }
     }
+
+    /** Event and procedure capture on the same machine (existing MemoryTypes). */
+    fun openEventComposer() = openComposerFor(MemoryType.EVENT)
+
+    fun openProcedureComposer() = openComposerFor(MemoryType.PROCEDURE)
 
     fun closeComposer() {
         _uiState.update {
@@ -292,6 +459,11 @@ class MachineDetailViewModel(
      * frozen change detection). The subject key embeds the asset namespace so
      * the new record joins this asset's derived view, and the list refreshes
      * through the normal domain read afterwards.
+     *
+     * On success the form CLEARS but stays open (one-shot confirmation shown),
+     * so a technician can add a second, third, … record to the same machine
+     * without leaving the screen. The record always goes through the real
+     * persistence path — never a local-only UI simulation.
      */
     fun submitComposer() {
         val composer = _uiState.value.composer
@@ -316,8 +488,13 @@ class MachineDetailViewModel(
                 )
                 _uiState.update {
                     it.copy(
-                        composer = AssetComposerState(
+                        composer = it.composer.copy(
+                            open = it.composer.keepOpenAfterSave,
+                            title = "",
+                            content = "",
                             type = created.type,
+                            submitting = false,
+                            error = null,
                             createdMessage = "Saved to local memory for ${namespace.uppercase()}.",
                             createdSyncState = created.syncState,
                         ),
