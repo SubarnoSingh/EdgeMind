@@ -2,6 +2,7 @@ package com.example.EdgeMemo.presentation.ask
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,50 +11,59 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.EdgeMemo.core.model.MemoryType
 import com.example.EdgeMemo.core.rag.CloudEscalation
 import com.example.EdgeMemo.core.rag.SourceReference
+import com.example.EdgeMemo.presentation.components.BackIcon
 import com.example.EdgeMemo.presentation.components.EdgeCard
-import com.example.EdgeMemo.presentation.components.EdgeCardSecondary
 import com.example.EdgeMemo.presentation.components.EdgeErrorState
+import com.example.EdgeMemo.presentation.components.EdgeListGroup
 import com.example.EdgeMemo.presentation.components.MarkdownBody
 import com.example.EdgeMemo.presentation.components.PillButton
+import com.example.EdgeMemo.presentation.components.SectionHeader
 import com.example.EdgeMemo.presentation.components.StatusChip
-import com.example.EdgeMemo.presentation.components.TechLabel
 import com.example.EdgeMemo.presentation.components.TonalPill
 import com.example.EdgeMemo.ui.theme.EdgeLayout
 import com.example.EdgeMemo.ui.theme.EdgeStatus
-import com.example.EdgeMemo.ui.theme.statusColor
 import com.example.EdgeMemo.ui.theme.EdgeType
+import com.example.EdgeMemo.ui.theme.statusStyleFor
 
 /** Stable tags for UI Phase 2 tests. */
 object AskUiTags {
@@ -75,10 +85,10 @@ object AskUiTags {
 
 /**
  * The grounded Ask console. Deliberately NOT a chatbot: one question, the
- * grounded answer, and the evidence that produced it — in an explicit
- * QUESTION → RETRIEVAL → EVIDENCE → ANSWER → SOURCE structure. Every string
- * shown here comes from the real RAG response; nothing is rewritten or
- * invented by the UI layer.
+ * grounded answer, and the numbered sources it came from. The input sits at
+ * the bottom where a thumb reaches it; everything above is the result. Every
+ * string shown about the answer comes from the real RAG response; nothing is
+ * rewritten or invented by the UI layer.
  */
 @Composable
 fun AskScreen(
@@ -87,284 +97,314 @@ fun AskScreen(
     onClearAssetContext: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
-    val focusRequester = remember { FocusRequester() }
+    val idle = state.phase == AskPhase.IDLE
+    val scroll = rememberScrollState()
+    val openCitation: (Int) -> Unit = { index ->
+        if (state.sources.any { it.index == index }) onOpenCitation(index)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .testTag(AskUiTags.SCREEN)
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(horizontal = EdgeLayout.screenPadding, vertical = EdgeLayout.cardGap),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+            .imePadding(),
     ) {
-        AskHeading(assetNamespace = state.assetNamespace, onClearAsset = onClearAssetContext)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(scroll)
+                .padding(horizontal = EdgeLayout.screenPadding)
+                .padding(top = 4.dp, bottom = 16.dp),
+            // Idle: suggestions sit just above the input, close to the thumb.
+            verticalArrangement = Arrangement.spacedBy(
+                EdgeLayout.cardGap,
+                if (idle) Alignment.Bottom else Alignment.Top,
+            ),
+        ) {
+            when (state.phase) {
+                AskPhase.IDLE -> Suggestions(onPick = viewModel::onQuestionChange)
 
-        Composer(
+                AskPhase.RETRIEVING, AskPhase.GENERATING, AskPhase.ESCALATING -> {
+                    QuestionHeading(state)
+                    LoadingRow(state.phase)
+                }
+
+                AskPhase.ERROR -> {
+                    QuestionHeading(state)
+                    EdgeErrorState(
+                        message = state.errorMessage ?: "The question couldn't be answered.",
+                        onRetry = viewModel::retry,
+                        modifier = Modifier.testTag(AskUiTags.ERROR),
+                    )
+                    NewQuestionButton(viewModel::clear)
+                }
+
+                AskPhase.SUCCESS, AskPhase.INSUFFICIENT -> {
+                    QuestionHeading(state)
+                    ProvenanceRow(state)
+                    if (state.phase == AskPhase.SUCCESS) {
+                        AnswerPanel(state, openCitation)
+                    } else {
+                        InsufficientPanel(state)
+                    }
+                    CloudSaveBlock(state, viewModel::saveToMemory)
+                    SourcesSection(state, onOpenCitation)
+                    Spacer(Modifier.height(6.dp))
+                    NewQuestionButton(viewModel::clear)
+                }
+            }
+        }
+
+        ComposerBar(
             value = state.question,
             busy = state.isBusy,
+            assetNamespace = state.assetNamespace,
+            showNote = idle,
+            contentBehind = scroll.canScrollForward,
             onValueChange = viewModel::onQuestionChange,
             onSubmit = viewModel::ask,
-            focusRequester = focusRequester,
+            onClearAsset = onClearAssetContext,
         )
-
-        when (state.phase) {
-            AskPhase.IDLE -> IdleGuide(
-                onPickSuggestion = { suggestion ->
-                    viewModel.onQuestionChange(suggestion)
-                },
-            )
-
-            AskPhase.RETRIEVING, AskPhase.GENERATING, AskPhase.ESCALATING -> LoadingPanel(state)
-
-            AskPhase.ERROR -> {
-                SubmittedQuestionRow(state)
-                EdgeErrorState(
-                    message = state.errorMessage ?: "The question could not be answered.",
-                    onRetry = viewModel::retry,
-                    modifier = Modifier.testTag(AskUiTags.ERROR),
-                )
-                NewQuestionRow(viewModel::clear)
-            }
-
-            AskPhase.SUCCESS, AskPhase.INSUFFICIENT -> {
-                SubmittedQuestionRow(state)
-                if (state.isBusy.not()) {
-                    ProvenanceRow(state)
-                }
-                AnswerBlock(state)
-                EscalationNote(state)
-                CloudSaveBlock(state, viewModel::saveToMemory)
-                EvidenceSection(state, onOpenCitation)
-                NewQuestionRow(viewModel::clear)
-            }
-        }
     }
 }
 
-@Composable
-private fun AskHeading(assetNamespace: String?, onClearAsset: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap)) {
-        TechLabel(text = "Ask EdgeMind")
-        Text(
-            text = "Grounded answers from your local maintenance memory — offline first.",
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (assetNamespace != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-            ) {
-                StatusChip(
-                    text = "ASSET CONTEXT · ${assetNamespace.uppercase()}",
-                    color = MaterialTheme.colorScheme.primary,
-                    showDot = true,
-                    modifier = Modifier
-                        .testTag(AskUiTags.ASSET_CHIP)
-                        .semantics {
-                            contentDescription =
-                                "Asset context $assetNamespace: the asset reference is included " +
-                                    "in the executed question; results are not hard-filtered"
-                        },
-                )
-                Text(
-                    text = "clear",
-                    style = EdgeType.label,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clickable(onClick = onClearAsset)
-                        .padding(EdgeLayout.compactGap),
-                )
-            }
-        }
-    }
-}
+// ── Composer ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun Composer(
+private fun ComposerBar(
     value: String,
     busy: Boolean,
+    assetNamespace: String?,
+    showNote: Boolean,
+    contentBehind: Boolean,
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit,
-    focusRequester: FocusRequester,
+    onClearAsset: () -> Unit,
 ) {
-    EdgeCard(modifier = Modifier.testTag(AskUiTags.COMPOSER)) {
-        Text(
-            text = "QUESTION",
-            style = EdgeType.label,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(EdgeLayout.compactGap))
+    val scheme = MaterialTheme.colorScheme
+    val canSend = !busy && value.isNotBlank()
+    // Hairline only while the result continues underneath the input.
+    if (contentBehind) {
         Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(scheme.outlineVariant),
+        )
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(AskUiTags.COMPOSER)
+            .background(scheme.background)
+            .padding(horizontal = EdgeLayout.screenPadding)
+            .padding(top = 10.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (assetNamespace != null) {
+            AssetContextRow(assetNamespace, onClearAsset)
+        }
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 56.dp, max = 168.dp)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    RoundedCornerShape(12.dp),
-                )
-                .padding(EdgeLayout.cardGap),
+                .heightIn(min = 60.dp)
+                .background(scheme.surface, RoundedCornerShape(16.dp))
+                .border(1.dp, scheme.outline, RoundedCornerShape(16.dp))
+                .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
             BasicTextField(
                 value = value,
                 onValueChange = { if (!busy) onValueChange(it) },
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(top = 12.dp, bottom = 12.dp, end = 10.dp)
                     .testTag(AskUiTags.COMPOSER_INPUT)
-                    .focusRequester(focusRequester)
-                    .semantics { contentDescription = "Question input" },
-                textStyle = EdgeType.bodyEmphasis.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { if (!busy && value.isNotBlank()) onSubmit() }),
-                maxLines = 6,
+                    .semantics { contentDescription = "Question" },
+                textStyle = EdgeType.bodyEmphasis.copy(color = scheme.onSurface),
+                cursorBrush = SolidColor(scheme.primary),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Send,
+                ),
+                keyboardActions = KeyboardActions(onSend = { if (canSend) onSubmit() }),
+                maxLines = 5,
                 decorationBox = { inner ->
-                    if (value.isEmpty()) {
-                        Text(
-                            text = "Ask about maintenance history, failures, procedures…",
-                            style = EdgeType.body,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        )
+                    Box {
+                        if (value.isEmpty()) {
+                            Text(
+                                text = if (assetNamespace != null) {
+                                    "Ask about ${assetNamespace.uppercase()}"
+                                } else {
+                                    "Ask about a machine or a past repair"
+                                },
+                                style = EdgeType.bodyEmphasis,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 },
             )
-        }
-        Spacer(Modifier.size(EdgeLayout.cardGap))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
-        ) {
-            PillButton(
-                text = if (busy) "Working…" else "Ask",
-                onClick = onSubmit,
-                enabled = !busy && value.isNotBlank(),
-                modifier = Modifier.testTag(AskUiTags.SUBMIT),
-            )
-            if (value.isNotEmpty() && !busy) {
-                TonalPill(text = "Clear", onClick = { onValueChange("") })
-            }
-            Spacer(Modifier.weight(1f))
-            if (busy) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun IdleGuide(onPickSuggestion: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap)) {
-        EdgeCardSecondary {
-            Text(
-                text = "EdgeMind answers from retrieved local records only. Every answer " +
-                    "lists the evidence it was grounded on; when evidence is insufficient " +
-                    "it says so instead of guessing.",
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TechLabel(text = "SUGGESTED QUESTIONS", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SUGGESTIONS.forEach { suggestion ->
             Surface(
+                onClick = onSubmit,
+                enabled = canSend,
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(EdgeLayout.hairline, MaterialTheme.colorScheme.outlineVariant),
+                color = if (canSend) scheme.primary else scheme.surfaceVariant,
+                contentColor = if (canSend) scheme.onPrimary else scheme.onSurfaceVariant,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("edge-ask-suggestion")
-                    .semantics { contentDescription = "Suggestion: $suggestion — fills the question box" }
-                    .clickable { onPickSuggestion(suggestion) },
+                    .size(EdgeLayout.minTarget)
+                    .testTag(AskUiTags.SUBMIT)
+                    .semantics { contentDescription = if (busy) "Working" else "Ask" },
             ) {
-                Text(
-                    text = "› $suggestion",
-                    style = EdgeType.body,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = EdgeLayout.cardGap, vertical = 10.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    if (busy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Icon(SendIcon, contentDescription = null, modifier = Modifier.size(22.dp))
+                    }
+                }
             }
+        }
+        if (showNote) {
+            Text(
+                text = "Answers come only from records on this device, with sources.",
+                style = EdgeType.metadata,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun LoadingPanel(state: AskUiState) {
-    val label = when (state.phase) {
-        AskPhase.RETRIEVING -> "Searching local knowledge…"
-        AskPhase.GENERATING -> "Evaluating evidence…"
-        AskPhase.ESCALATING -> "Local evidence insufficient — asking cloud…"
-        else -> "Working…"
+private fun AssetContextRow(assetNamespace: String, onClear: () -> Unit) {
+    val tag = assetNamespace.uppercase()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StatusChip(
+            text = "Asking about $tag",
+            color = MaterialTheme.colorScheme.onSurface,
+            showDot = false,
+            modifier = Modifier
+                .testTag(AskUiTags.ASSET_CHIP)
+                .semantics {
+                    contentDescription =
+                        "Asking about $tag. The tag is added to your question; other records can still match."
+                },
+        )
+        Box(
+            modifier = Modifier
+                .heightIn(min = EdgeLayout.minTarget)
+                .clickable(onClick = onClear)
+                .semantics { contentDescription = "Stop asking about $tag" }
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Clear", style = EdgeType.label, color = MaterialTheme.colorScheme.primary)
+        }
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(AskUiTags.LOADING)
-            .semantics { contentDescription = label },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+}
+
+// ── Idle ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun Suggestions(onPick: (String) -> Unit) {
+    SectionHeader(title = "Try asking")
+    EdgeListGroup(items = SUGGESTIONS) { suggestion ->
         Text(
-            text = label,
-            style = EdgeType.metadata,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = suggestion,
+            style = EdgeType.body,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = EdgeLayout.minTarget)
+                .testTag("edge-ask-suggestion")
+                .semantics { contentDescription = "$suggestion. Puts it in the question box." }
+                .clickable { onPick(suggestion) }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
         )
     }
 }
 
+// ── Result ─────────────────────────────────────────────────────────────────
+
 @Composable
-private fun SubmittedQuestionRow(state: AskUiState) {
+private fun QuestionHeading(state: AskUiState) {
     val submitted = state.submittedQuestion ?: return
-    Column {
-        Text(
-            text = "QUESTION",
-            style = EdgeType.label,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Column(
+        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(
             text = submitted,
-            style = EdgeType.bodyEmphasis,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp, lineHeight = 27.sp),
             color = MaterialTheme.colorScheme.onSurface,
         )
         val executed = state.executedQuestion
         if (state.assetNamespace != null && executed != null && executed != submitted) {
             Text(
-                text = "executed query: $executed",
-                style = EdgeType.numeric,
+                text = "Searched as “$executed”",
+                style = EdgeType.metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
 }
 
 @Composable
+private fun LoadingRow(phase: AskPhase) {
+    val label = when (phase) {
+        AskPhase.RETRIEVING -> "Searching records on this device"
+        AskPhase.GENERATING -> "Reading the matching records"
+        AskPhase.ESCALATING -> "Not enough here, asking the cloud"
+        else -> "Working"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(AskUiTags.LOADING)
+            .semantics { contentDescription = label }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(label, style = EdgeType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Where the answer came from, from the real response state only. */
+@Composable
 private fun ProvenanceRow(state: AskUiState) {
+    val (status, label) = when {
+        state.provenance == AskProvenance.CLOUD -> EdgeStatus.SYNCING to "Cloud answer"
+        state.phase == AskPhase.SUCCESS -> EdgeStatus.HEALTHY to "From your records"
+        else -> EdgeStatus.NEUTRAL to "Searched this device"
+    }
+    val style = statusStyleFor(status)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(AskUiTags.PROVENANCE),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        when (state.provenance) {
-            AskProvenance.CLOUD -> StatusChip(
-                text = "CLOUD ESCALATION",
-                color = MaterialTheme.colorScheme.primary,
-            )
-            AskProvenance.LOCAL -> StatusChip(
-                text = if (state.phase == AskPhase.INSUFFICIENT) "LOCAL · INSUFFICIENT" else "LOCAL KNOWLEDGE",
-                color = when {
-                    state.phase == AskPhase.INSUFFICIENT -> EdgeStatus.WARNING.statusColor()
-                    else -> EdgeStatus.HEALTHY.statusColor()
-                },
-            )
-            AskProvenance.NONE -> Unit
-        }
+        StatusChip(text = label, color = style.color, containerColor = style.container)
         if (state.phase == AskPhase.SUCCESS && !state.isCloudAnswer) {
+            val n = state.sources.size
             Text(
-                text = "Grounded in ${state.sources.size} source${if (state.sources.size == 1) "" else "s"}",
+                text = "Based on $n source${if (n == 1) "" else "s"}",
                 style = EdgeType.label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -373,151 +413,177 @@ private fun ProvenanceRow(state: AskUiState) {
 }
 
 @Composable
-private fun AnswerBlock(state: AskUiState) {
+private fun AnswerPanel(state: AskUiState, onCitation: (Int) -> Unit) {
     if (state.answer.isBlank()) return
-    when (state.phase) {
-        AskPhase.SUCCESS -> EdgeCard(modifier = Modifier.testTag(AskUiTags.ANSWER)) {
-            Text("ANSWER", style = EdgeType.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(EdgeLayout.compactGap))
-            MarkdownBody(state.answer)
+    EdgeCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(AskUiTags.ANSWER),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+    ) {
+        MarkdownBody(state.answer, onCitationClick = onCitation)
+        if (state.escalation is CloudEscalation.Answered) {
+            Spacer(Modifier.height(12.dp))
+            Note("This came from the cloud, not your records. It's only kept if you save it.")
         }
-        AskPhase.INSUFFICIENT -> EdgeCard(
-            modifier = Modifier.testTag(AskUiTags.INSUFFICIENT),
+    }
+}
+
+/** Insufficient evidence: amber, plain words, and what to try next. */
+@Composable
+private fun InsufficientPanel(state: AskUiState) {
+    val warn = statusStyleFor(EdgeStatus.WARNING)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(AskUiTags.INSUFFICIENT),
+        shape = RoundedCornerShape(14.dp),
+        color = warn.container,
+        border = BorderStroke(1.dp, warn.color.copy(alpha = 0.35f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TechLabel(text = "NOT ENOUGH EVIDENCE", color = EdgeStatus.WARNING.statusColor())
-            Spacer(Modifier.size(EdgeLayout.compactGap))
-            Text(
-                text = "The stored knowledge does not sufficiently support this question — " +
-                    "EdgeMind will not guess.",
-                style = EdgeType.body,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.size(EdgeLayout.compactGap))
-            if (state.answer.isNotBlank()) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier
+                        .padding(top = 7.dp)
+                        .size(8.dp)
+                        .background(warn.color, CircleShape),
+                )
                 Text(
-                    text = state.answer,
-                    style = EdgeType.metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Not enough in your records to answer this.",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
+            Text(
+                text = "Try adding the machine tag or the part name. If it was never logged, " +
+                    "add a record from the machine's page.",
+                style = EdgeType.body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 18.dp),
+            )
+            when (state.escalation) {
+                CloudEscalation.Offline -> Note("You're offline, so the cloud wasn't asked.", Modifier.padding(start = 18.dp))
+                CloudEscalation.Unavailable -> Note("The cloud couldn't answer either.", Modifier.padding(start = 18.dp))
+                else -> Unit
+            }
         }
-        else -> Unit
     }
 }
 
 @Composable
-private fun EscalationNote(state: AskUiState) {
-    when (state.escalation) {
-        CloudEscalation.Offline -> EscalationLine(
-            "Offline — local evidence was insufficient and cloud escalation is unavailable. " +
-                "Local knowledge is unaffected.",
-        )
-        CloudEscalation.Unavailable -> EscalationLine(
-            "Online, but the cloud could not answer. Only the local result above is real.",
-        )
-        is CloudEscalation.Answered -> EscalationLine(
-            "Cloud answer shown with provenance — it is not local evidence and was not " +
-                "stored automatically.",
-        )
-        null -> Unit
-    }
-}
-
-@Composable
-private fun EscalationLine(text: String) {
-    Text(
-        text = text,
-        style = EdgeType.metadata,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun Note(text: String, modifier: Modifier = Modifier) {
+    Text(text = text, style = EdgeType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 @Composable
 private fun CloudSaveBlock(state: AskUiState, onSave: () -> Unit) {
     when {
         state.canSave -> PillButton(text = "Save to memory", onClick = onSave)
-        state.cacheInFlight -> EscalationLine("Saving…")
+        state.cacheInFlight -> Note("Saving")
         state.savedToMemory -> StatusChip(
-            text = "SAVED TO LOCAL MEMORY",
-            color = EdgeStatus.SYNCED.statusColor(),
+            text = "Saved to this device",
+            color = statusStyleFor(EdgeStatus.SYNCED).color,
+            containerColor = statusStyleFor(EdgeStatus.SYNCED).container,
         )
     }
-    state.cacheMessage?.let { EscalationLine(it) }
+    state.cacheMessage?.let { Note(it) }
 }
 
 @Composable
-private fun EvidenceSection(state: AskUiState, onOpenCitation: (Int) -> Unit) {
+private fun SourcesSection(state: AskUiState, onOpenCitation: (Int) -> Unit) {
     if (state.sources.isEmpty()) return
+    val insufficient = state.phase == AskPhase.INSUFFICIENT
     Column(
-        modifier = Modifier.testTag(AskUiTags.EVIDENCE_SECTION),
-        verticalArrangement = Arrangement.spacedBy(EdgeLayout.compactGap),
+        modifier = Modifier
+            .padding(top = EdgeLayout.sectionGap - EdgeLayout.cardGap)
+            .testTag(AskUiTags.EVIDENCE_SECTION),
+        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
     ) {
-        TechLabel(
-            text = "EVIDENCE · ${state.sources.size} SOURCE${if (state.sources.size == 1) "" else "S"}",
-            color = MaterialTheme.colorScheme.primary,
+        SectionHeader(
+            title = if (insufficient) "Closest records" else "Sources",
+            subtitle = if (insufficient) "These came up in the search but don't answer it." else null,
         )
-        state.sources.forEach { source ->
-            EvidenceCard(source = source, onOpen = { onOpenCitation(source.index) })
+        EdgeListGroup(items = state.sources) { source ->
+            val subject = state.evidence.firstOrNull { it.memory.memoryId == source.memoryId }
+                ?.memory?.subjectKey
+            SourceRow(source, subject, onOpen = { onOpenCitation(source.index) })
         }
     }
 }
 
-/**
- * Compact technical citation card: real fields only, empty fields omitted.
- * Opens the full traceability detail on tap.
- */
+/** One numbered source; the number is the `[n]` used in the answer. */
 @Composable
-private fun EvidenceCard(source: SourceReference, onOpen: () -> Unit) {
-    EdgeCardSecondary(
+private fun SourceRow(source: SourceReference, subjectKey: String?, onOpen: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val title = source.title.ifBlank { "Untitled record" }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 64.dp)
             .testTag("${AskUiTags.EVIDENCE_CARD_PREFIX}${source.index}")
-            .semantics {
-                contentDescription = "Evidence ${source.index}: ${source.title}. " +
-                    "Open citation detail."
-            }
-            .clickable(onClick = onOpen),
+            .semantics { contentDescription = "Source ${source.index}: $title. Open details." }
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.Top) {
+        CitationNumber(source.index)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                text = "[${source.index}]",
-                style = EdgeType.numeric,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(EdgeLayout.compactGap))
-            Text(
-                text = source.title.ifBlank { "Untitled record" },
-                style = EdgeType.bodyEmphasis,
-                color = MaterialTheme.colorScheme.onSurface,
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
             )
-            Text(
-                text = "›",
-                style = EdgeType.bodyEmphasis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                machineTagOf(subjectKey)?.let {
+                    Text(it, style = EdgeType.numeric.copy(fontSize = 12.sp), color = scheme.onSurfaceVariant)
+                }
+                Text(typeLabel(source.type), style = EdgeType.label, color = scheme.onSurfaceVariant)
+                Text(
+                    "Score ${"%.3f".format(source.score)}",
+                    style = EdgeType.label,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
         }
-        Text(
-            text = citationLocation(source),
-            style = EdgeType.label,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Icon(
+            BackIcon,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(18.dp)
+                .rotate(180f),
         )
-        if (source.snippet.isNotBlank()) {
-            Text(
-                text = "\u201C${source.snippet}\u201D",
-                style = EdgeType.metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
 
 @Composable
-private fun NewQuestionRow(onNew: () -> Unit) {
+internal fun CitationNumber(index: Int) {
+    Box(
+        modifier = Modifier
+            .size(26.dp)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), RoundedCornerShape(7.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = index.toString(),
+            style = EdgeType.numeric.copy(fontSize = 12.sp),
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun NewQuestionButton(onNew: () -> Unit) {
     TonalPill(
         text = "New question",
         onClick = onNew,
@@ -525,20 +591,43 @@ private fun NewQuestionRow(onNew: () -> Unit) {
     )
 }
 
-private fun citationLocation(source: SourceReference): String = buildList {
-    add(source.type.name.lowercase().replace('_', ' '))
-    add("source ${source.source}")
-    source.page?.let { add("page $it") }
-    source.section?.let { add(it) }
-    source.chunkIndex?.let { add("chunk ${it + 1}") }
-    source.chunkId?.let { add("chunk-id $it") }
-}.joinToString(" · ")
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Machine tag from a subject key's namespace (`p-101/seal` -> `P-101`). */
+internal fun machineTagOf(subjectKey: String?): String? =
+    subjectKey?.substringBefore('/')?.trim()?.takeIf { it.isNotEmpty() }?.uppercase()
+
+internal fun typeLabel(type: MemoryType): String =
+    type.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 private val SUGGESTIONS = listOf(
-    "Why is this asset failing repeatedly?",
-    "What maintenance has this asset had recently?",
-    "What failures or incidents are recorded?",
-    "What procedures are available?",
-    "What observations were recently recorded?",
-    "What evidence exists for the repeated failure?",
+    "Why is this machine failing repeatedly?",
+    "What maintenance was done recently?",
+    "What failures or incidents are on record?",
+    "Which procedures are available?",
+    "What was observed on recent inspections?",
 )
+
+private val SendIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Send",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            moveTo(12f, 19f)
+            lineTo(12f, 5f)
+            moveTo(6f, 11f)
+            lineTo(12f, 5f)
+            lineTo(18f, 11f)
+        }
+    }.build()
+}

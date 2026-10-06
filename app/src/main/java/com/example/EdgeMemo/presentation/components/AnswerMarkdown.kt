@@ -25,14 +25,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.EdgeMemo.ui.theme.EdgeType
 import com.example.EdgeMemo.ui.theme.LocalEdgeColors
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
@@ -58,9 +60,10 @@ import org.commonmark.parser.Parser
 // ── Answer / content rendering ─────────────────────────────────────────────
 // Renders answer text as proper structured content: headings, paragraphs,
 // bold/italic, bullet + numbered lists, inline code, code blocks, block
-// quotes — plus accent-highlighted `[n]` citations. Plain text falls back to
+// quotes — plus iris `[n]` citations (tappable when the caller handles them). Plain text falls back to
 // clean paragraphs automatically. Presentation-only; no backend/LLM changes.
 
+private val citationNumber = Regex("[0-9]+")
 private val citationPattern = Regex("""\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]""")
 
 // ── Math symbol presentation ──────────────────────────────────────────────
@@ -153,26 +156,39 @@ internal fun replaceMathCommands(text: String): String {
 
 private data class InlinePalette(
     val citation: Color,
-    val codeSurface: Color,
-    val codeText: Color,
+    val marker: Color,
+    val code: SpanStyle,
+    val onCitation: ((Int) -> Unit)?,
 )
 
+/**
+ * Renders answer/record text. [onCitationClick] makes each `[n]` marker a
+ * tap target for source n; without it markers are only highlighted.
+ */
 @Composable
 fun MarkdownBody(
     text: String,
     modifier: Modifier = Modifier,
+    onCitationClick: ((Int) -> Unit)? = null,
 ) {
     val root = remember(text) { Parser.builder().build().parse(text.trim()) }
     val edgeColors = LocalEdgeColors.current
     val palette = InlinePalette(
         citation = MaterialTheme.colorScheme.primary,
-        codeSurface = edgeColors.codeSurface,
-        codeText = edgeColors.codeText,
+        marker = MaterialTheme.colorScheme.onSurfaceVariant,
+        code = EdgeType.code.toSpanStyle().copy(
+            background = edgeColors.codeSurface,
+            color = edgeColors.codeText,
+        ),
+        onCitation = onCitationClick,
     )
 
+    // Cap the line length so long answers stay readable on tablets.
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 600.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         val children = root.firstChild?.let { NodeListOf(it) } ?: NodeListOf(root)
         children.forEach { node ->
@@ -236,9 +252,8 @@ private fun BlockRenderer(node: Node, palette: InlinePalette) {
 @Composable
 private fun HeadingBlock(node: Heading, palette: InlinePalette) {
     val (style, topPadding) = when (node.level) {
-        1 -> MaterialTheme.typography.titleLarge to 10.dp
-        2 -> MaterialTheme.typography.titleMedium to 8.dp
-        3 -> MaterialTheme.typography.titleSmall to 6.dp
+        1 -> MaterialTheme.typography.titleMedium to 8.dp
+        2 -> MaterialTheme.typography.titleSmall to 6.dp
         else -> MaterialTheme.typography.labelLarge to 4.dp
     }
     Column {
@@ -246,7 +261,6 @@ private fun HeadingBlock(node: Heading, palette: InlinePalette) {
         Text(
             text = inlineAnnotated(node, palette),
             style = style,
-            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -270,8 +284,7 @@ private fun ListBlock(
                     Text(
                         text = marker,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = palette.citation.copy(alpha = 0.85f),
+                        color = palette.marker,
                         modifier = Modifier
                             .widthIn(min = 18.dp)
                             .padding(end = 10.dp),
@@ -303,7 +316,7 @@ private fun QuoteBlock(node: BlockQuote, palette: InlinePalette) {
             Modifier
                 .width(3.dp)
                 .fillMaxHeight()
-                .background(palette.citation.copy(alpha = 0.45f), RoundedCornerShape(2.dp)),
+                .background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)),
         )
         Column(
             Modifier
@@ -334,15 +347,12 @@ private fun CodeBlock(literal: String) {
         Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .background(edgeColors.codeSurface, RoundedCornerShape(14.dp))
+            .background(edgeColors.codeSurface, RoundedCornerShape(10.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(
             text = literal.trimEnd('\n'),
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 13.5.sp,
-            lineHeight = 20.sp,
+            style = EdgeType.code,
             color = edgeColors.codeText,
         )
     }
@@ -380,23 +390,17 @@ private fun inlineWalk(node: Node, palette: InlinePalette, builder: AnnotatedStr
                 }
             }
             is Code -> {
-                builder.withStyle(
-                    SpanStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        background = palette.codeSurface,
-                        color = palette.codeText,
-                    ),
-                ) {
-                    builder.append(" ")
+                builder.withStyle(palette.code) {
+                    builder.append("\u00A0")
                     builder.append(child.literal)
-                    builder.append(" ")
+                    builder.append("\u00A0")
                 }
             }
             is Link -> {
                 val inner = AnnotatedString.Builder()
                 inlineWalk(child, palette, inner)
-                builder.withStyle(SpanStyle(color = palette.citation, textDecoration = TextDecoration.Underline)) {
+                // Not tappable here, so underlined but not iris.
+                builder.withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
                     builder.append(inner.toAnnotatedString())
                 }
             }
@@ -417,12 +421,29 @@ private fun appendWithCitations(
     val literal = replaceMathCommands(rawLiteral)
     var cursor = 0
     var match = citationPattern.find(literal)
+    val style = SpanStyle(color = palette.citation, fontWeight = FontWeight.SemiBold)
     while (match != null) {
         builder.append(literal, cursor, match.range.first)
-        builder.withStyle(
-            SpanStyle(color = palette.citation, fontWeight = FontWeight.SemiBold),
-        ) {
-            builder.append(literal, match.range.first, match.range.last + 1)
+        val onCitation = palette.onCitation
+        if (onCitation == null) {
+            builder.withStyle(style) {
+                builder.append(literal, match.range.first, match.range.last + 1)
+            }
+        } else {
+            // "[1, 2]": each number is its own tap target.
+            builder.withStyle(style) {
+                var pos = match.range.first
+                citationNumber.findAll(match.value).forEach { num ->
+                    val start = match.range.first + num.range.first
+                    builder.append(literal, pos, start)
+                    val n = num.value.toInt()
+                    builder.withLink(
+                        LinkAnnotation.Clickable("cite-$n", TextLinkStyles(style)) { onCitation(n) },
+                    ) { builder.append(num.value) }
+                    pos = start + num.value.length
+                }
+                builder.append(literal, pos, match.range.last + 1)
+            }
         }
         cursor = match.range.last + 1
         match = citationPattern.find(literal, cursor)

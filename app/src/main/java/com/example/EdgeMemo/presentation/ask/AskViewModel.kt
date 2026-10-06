@@ -116,7 +116,7 @@ class AskViewModel(
             }
         } catch (e: Exception) {
             _uiState.update {
-                it.copy(phase = AskPhase.ERROR, errorMessage = e.message ?: "ask failed")
+                it.copy(phase = AskPhase.ERROR, errorMessage = e.message ?: "The question couldn't be answered.")
             }
             return
         }
@@ -166,10 +166,10 @@ class AskViewModel(
             try {
                 when (val result = useCase(escalation.question, escalation.answer, escalation.authority)) {
                     is CacheCloudAnswerResult.Saved -> _uiState.update {
-                        it.copy(savedToMemory = true, cacheInFlight = false, cacheMessage = "Saved to local memory.")
+                        it.copy(savedToMemory = true, cacheInFlight = false, cacheMessage = "Saved to this device.")
                     }
                     CacheCloudAnswerResult.AlreadyPresent -> _uiState.update {
-                        it.copy(savedToMemory = true, cacheInFlight = false, cacheMessage = "Already in local memory.")
+                        it.copy(savedToMemory = true, cacheInFlight = false, cacheMessage = "Already saved on this device.")
                     }
                     is CacheCloudAnswerResult.ConflictPrevented -> _uiState.update {
                         it.copy(savedToMemory = false, cacheInFlight = false, cacheMessage = result.reason)
@@ -179,7 +179,7 @@ class AskViewModel(
                 _uiState.update {
                     it.copy(
                         cacheInFlight = false,
-                        cacheMessage = "Save failed: ${e.message ?: "unknown error"}",
+                        cacheMessage = "Couldn't save: ${e.message ?: "unknown error"}",
                     )
                 }
             }
