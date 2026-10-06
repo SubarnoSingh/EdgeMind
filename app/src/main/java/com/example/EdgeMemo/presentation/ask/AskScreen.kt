@@ -116,14 +116,23 @@ fun AskScreen(
                 .verticalScroll(scroll)
                 .padding(horizontal = EdgeLayout.screenPadding)
                 .padding(top = 4.dp, bottom = 16.dp),
-            // Idle: suggestions sit just above the input, close to the thumb.
-            verticalArrangement = Arrangement.spacedBy(
-                EdgeLayout.cardGap,
-                if (idle) Alignment.Bottom else Alignment.Top,
-            ),
+            // Idle: intro at the top, suggestions just above the input, close to the thumb.
+            verticalArrangement = if (idle) {
+                Arrangement.SpaceBetween
+            } else {
+                Arrangement.spacedBy(EdgeLayout.cardGap)
+            },
         ) {
             when (state.phase) {
-                AskPhase.IDLE -> Suggestions(onPick = viewModel::onQuestionChange)
+                AskPhase.IDLE -> {
+                    IdleIntro()
+                    Column(
+                        modifier = Modifier.padding(top = EdgeLayout.sectionGap),
+                        verticalArrangement = Arrangement.spacedBy(EdgeLayout.cardGap),
+                    ) {
+                        Suggestions(onPick = viewModel::onQuestionChange)
+                    }
+                }
 
                 AskPhase.RETRIEVING, AskPhase.GENERATING, AskPhase.ESCALATING -> {
                     QuestionHeading(state)
@@ -313,6 +322,26 @@ private fun AssetContextRow(assetNamespace: String, onClear: () -> Unit) {
 }
 
 // ── Idle ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun IdleIntro() {
+    Column(
+        modifier = Modifier.padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Search your maintenance history",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "Ask the way you'd ask whoever had the last shift. " +
+                "It works without signal.",
+            style = EdgeType.body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
 
 @Composable
 private fun Suggestions(onPick: (String) -> Unit) {

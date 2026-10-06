@@ -898,7 +898,7 @@ class CreateRecordViewModelInitializationTest {
         viewModel.submit()
         advanceUntilIdle()
         assertEquals(
-            "Select a document, or provide a title or description.",
+            "Choose a file, or add a title or details.",
             viewModel.uiState.value.error,
         )
     }

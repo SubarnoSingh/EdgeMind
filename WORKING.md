@@ -5,6 +5,47 @@ commands below unless explicitly marked NOT VERIFIED.
 
 ---
 
+## UI revamp v1.2.0 (presentation layer only)
+
+No domain, data, sync or native code changed. Every screen still binds the same
+ViewModels and real state.
+
+- **Design system** (`ui/theme/`): graphite/iris palette modelled on HMI
+  practice, where greys carry structure and color only signals state (amber
+  queued/offline, red failed, green synced, violet redacted; iris only on things
+  you can tap). Mona Sans (SIL OFL, `res/font/`, license in
+  `assets/licenses/MonaSans-OFL.txt`) for UI text; Mona Sans Expanded for screen
+  titles, equipment tags and counts; Mona Sans Mono only for code. Radius steps
+  by hierarchy, hairline panels, no shadows. Dark theme is now the default.
+- **Components**: flat `EdgeCard`/`EdgeCardSecondary`, new `EdgeListGroup`
+  (rows split by hairlines inside one panel), squared status chips, 48dp
+  buttons, `SectionHeader` with optional trailing action, `TechLabel` no longer
+  forces capitals. Dead `EdgeTopBar`/`ModeSwitch`/`IconPill` removed.
+- **Shell**: per-tab title in the Expanded face, Back control for pushed routes,
+  Online/Offline + sync badges; bottom nav with an iris indicator bar and
+  `navigationBarsPadding`. Screens no longer draw a second title/back link.
+- **Screens**: Overview, Machines (list, detail, record), Ask (bottom-anchored
+  composer, numbered sources, amber "not enough evidence" state, citation
+  detail), Sync, Conflicts (side-labelled compare), Settings (grouped list,
+  Dark/Light switch), records browser and record composer all rebuilt on the
+  system, with plain sentence-case copy.
+- **Fixes found during the pass**: Settings record/sync counts were stale
+  (shared `MemoryViewModel` never refreshed there); Settings now refreshes on
+  entry. Conflict list on Sync shows unresolved conflicts only.
+- **Design-review harness**: `presentation/UiScreenshotHarness.kt` renders the
+  seeded shell to `app/build/ui-shots/` (gated by `EDGEMIND_SHOTS=1`).
+
+### Known test-environment limit (Windows)
+
+Robolectric names its temp dir after the test class + method. For tests that
+open Qdrant Edge, the resulting segment paths exceed Windows MAX_PATH and fail
+with `os error 3` / "Gridstore IO error", on the pre-revamp commit as well.
+Run with `JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=C:/rt` (short temp root) and
+`--no-daemon`; tests with long names may still hit the limit on Windows unless
+long paths are enabled. NOT AN APP BUG; does not occur on device.
+
+---
+
 ## UI redesign + repair pass (presentation layer, uncommitted)
 
 ### Previous pass (kept)

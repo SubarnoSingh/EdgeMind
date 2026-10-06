@@ -114,9 +114,9 @@ class EdgeMindShellComposeTest {
         showShell(newContainer())
         waitForDashboard()
         compose.onNodeWithTag("edge-tab-machines").performClick()
-        waitForNode("No machine or asset references yet")
+        waitForNode("No machines yet")
         compose.onNodeWithTag(EdgeUiTags.MACHINES).assertIsDisplayed()
-        compose.onNodeWithText("No machine or asset references yet").assertIsDisplayed()
+        compose.onNodeWithText("No machines yet").assertIsDisplayed()
     }
 
     @Test
@@ -155,11 +155,9 @@ class EdgeMindShellComposeTest {
             compose.onAllNodesWithText("P-101 seal observation")
                 .fetchSemanticsNodes().isNotEmpty(),
         )
-        // Honest disclosure: the domain exposes no machine status yet.
-        compose.onNodeWithText(
-            "Operational status and criticality are not exposed by the local domain yet",
-            substring = true,
-        ).performScrollTo().assertIsDisplayed()
+        // Honesty: the domain has no health/risk model, so none is shown.
+        assertTrue(compose.onAllNodesWithText("Health", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Risk score", substring = true).fetchSemanticsNodes().isEmpty())
     }
 
     @Test
