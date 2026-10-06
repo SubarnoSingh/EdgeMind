@@ -147,7 +147,7 @@ class OperationalActivityEndToEndTest {
         compose.onNodeWithTag("edge-ask-about-asset").performScrollTo().performClick()
         waitForTag(AskUiTags.SCREEN)
         compose.onNodeWithTag(AskUiTags.ASSET_CHIP).assertIsDisplayed()
-        compose.onNodeWithText("ASSET CONTEXT · P101").assertIsDisplayed()
+        compose.onNodeWithText("Asking about P101").assertIsDisplayed()
 
         // Return to the asset, use the per-record conflict indicator, then
         // resolve through the authoritative Phase 4 detail workflow.

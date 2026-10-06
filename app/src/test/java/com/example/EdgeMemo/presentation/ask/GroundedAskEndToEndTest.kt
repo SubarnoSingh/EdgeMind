@@ -159,7 +159,7 @@ class GroundedAskEndToEndTest {
         toAskTab()
 
         // Idle guidance is present before any submission (scrollable page).
-        compose.onNodeWithText("SUGGESTED QUESTIONS").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Try asking").performScrollTo().assertIsDisplayed()
 
         compose.onNodeWithTag(AskUiTags.COMPOSER_INPUT)
             .performTextInput("why does pump P-101 keep failing its mechanical seal")
@@ -171,8 +171,8 @@ class GroundedAskEndToEndTest {
         waitForIdleTag(AskUiTags.EVIDENCE_SECTION)
         // Provenance badges are child nodes of the tagged row: assert the real
         // label nodes directly (merged-tree text lives on the children).
-        compose.onNodeWithText("LOCAL KNOWLEDGE").assertExists()
-        compose.onNodeWithText("Grounded in", substring = true).assertExists()
+        compose.onNodeWithText("From your records").assertExists()
+        compose.onNodeWithText("Based on", substring = true).assertExists()
 
         // First citation opens full traceability detail.
         compose.onNodeWithTag("${AskUiTags.EVIDENCE_CARD_PREFIX}1").performScrollTo().performClick()
@@ -184,21 +184,22 @@ class GroundedAskEndToEndTest {
         // Location/record sections render real identifiers, no storage
         // internals (sections below the fold are asserted by existence —
         // scrolling is exercised by the tap flow above).
-        compose.onNodeWithText("LOCATION").assertIsDisplayed()
-        compose.onNodeWithText("RETRIEVAL BASIS").assertExists()
-        compose.onNodeWithText("RECORD").assertExists()
+        compose.onNodeWithText("Why it matched").assertIsDisplayed()
+        compose.onNodeWithText("What it says").assertExists()
+        compose.onNodeWithText("Details").assertExists()
 
         // Deterministic back returns to the retained answer + evidence
         // (composition was swapped by navigation, so scrolled content
         // re-lays-out from the top; assert existence then scroll for taps).
-        compose.onNodeWithTag(CitationDetailTags.BACK).performClick()
+        // Back is the shell's single back control.
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForIdleTag(AskUiTags.SCREEN)
         compose.onNodeWithTag(AskUiTags.ANSWER).assertExists()
         compose.onNodeWithTag(AskUiTags.EVIDENCE_SECTION).assertExists()
 
         // New question resets to idle (session state, no persistence).
         compose.onNodeWithTag(AskUiTags.NEW_QUESTION).performScrollTo().performClick()
-        waitForIdleText("SUGGESTED QUESTIONS")
+        waitForIdleText("Try asking")
         compose.onNodeWithTag(AskUiTags.ANSWER).assertDoesNotExist()
     }
 
@@ -225,7 +226,7 @@ class GroundedAskEndToEndTest {
         val resultTags = listOf(AskUiTags.INSUFFICIENT, AskUiTags.ERROR, AskUiTags.ANSWER)
         waitForAnyTag(resultTags)
         compose.onNodeWithTag(AskUiTags.INSUFFICIENT).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("NOT ENOUGH EVIDENCE").assertExists()
+        compose.onNodeWithText("Not enough in your records to answer this.").assertExists()
         // Insufficient is NOT an error state:
         compose.onNodeWithTag(AskUiTags.ERROR).assertDoesNotExist()
         // and no answer card or fabricated citations are rendered.
@@ -234,7 +235,7 @@ class GroundedAskEndToEndTest {
         compose.onNodeWithTag(EdgeUiTags.CONNECTION_BADGE).assertExists()
         // Local knowledge remains fully usable: a new question works.
         compose.onNodeWithTag(AskUiTags.NEW_QUESTION).performScrollTo().performClick()
-        waitForIdleText("SUGGESTED QUESTIONS")
+        waitForIdleText("Try asking")
     }
 
     @Test
@@ -246,7 +247,7 @@ class GroundedAskEndToEndTest {
         firstSuggestion.performScrollTo()
         firstSuggestion.performClick()
         // Composer now holds the suggestion text, but nothing was submitted.
-        val suggestionText = "Why is this asset failing repeatedly?"
+        val suggestionText = "Why is this machine failing repeatedly?"
         compose.waitUntil(10_000) {
             compose.onAllNodes(hasText(suggestionText), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
@@ -280,15 +281,15 @@ class GroundedAskEndToEndTest {
         // SAME Ask surface (no second screen), carrying the asset context chip.
         waitForIdleTag(AskUiTags.SCREEN)
         compose.onNodeWithTag(AskUiTags.ASSET_CHIP).assertIsDisplayed()
-        compose.onNodeWithText("ASSET CONTEXT · P101").assertIsDisplayed()
+        compose.onNodeWithText("Asking about P101").assertIsDisplayed()
 
         // The executed query visibly includes the asset reference.
+        // The composer is pinned below the scrolling result area.
         compose.onNodeWithTag(AskUiTags.COMPOSER_INPUT)
-            .performScrollTo()
             .performTextInput("why do the seals keep weeping")
         compose.onNodeWithTag(AskUiTags.SUBMIT).performClick()
         waitForIdleTag(AskUiTags.PROVENANCE)
-        compose.onNodeWithText("executed query: why do the seals keep weeping p101", substring = true)
+        compose.onNodeWithText("Searched as “why do the seals keep weeping p101”", substring = true)
             .performScrollTo()
             .assertIsDisplayed()
     }
