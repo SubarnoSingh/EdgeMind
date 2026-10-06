@@ -175,16 +175,21 @@ class OperationalActivityEndToEndTest {
             runBlocking { container.getConflict(conflictId) }!!.state,
         )
 
+        // The real local record remains intact and nothing is left unresolved.
+        // (Read here, before navigating: a main-thread runBlocking read while
+        // the workspace reloads contends with the record store's lock.)
+        assertNotNull(runBlocking { container.memoryRepository.get(observation.memoryId) })
+        assertEquals(0L, runBlocking { container.countUnresolvedConflicts() })
+
         // Returning re-reads durable conflict state; the activity row no
-        // longer claims conflict while the real local record remains intact.
-        compose.onNodeWithTag(ConflictUiTags.BACK).performClick()
+        // longer claims conflict.
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForTag(AssetUiTags.SCREEN)
+        waitForTag(AssetUiTags.OVERVIEW)
         compose.waitUntil(20_000) {
             compose.onAllNodesWithTag("${AssetUiTags.RECORD_CONFLICT_PREFIX}${observation.memoryId}")
                 .fetchSemanticsNodes().isEmpty()
         }
-        assertNotNull(runBlocking { container.memoryRepository.get(observation.memoryId) })
-        assertEquals(0L, runBlocking { container.countUnresolvedConflicts() })
 
         // Offline/local architecture guard: browsing, detail and local write
         // all succeeded without a backend; only the one application shard exists.

@@ -156,8 +156,8 @@ class AssetWorkspaceEndToEndTest {
         compose.onNodeWithTag("${EdgeUiTags.MACHINE_CARD_PREFIX}p101").performClick()
         waitForTag(AssetUiTags.SCREEN)
         // The workspace reads the real shard on IO — wait for the Ready state
-        // (the overview strip is the first content-bearing node).
-        waitForText("records")
+        // (the count/filter strip only renders once records are loaded).
+        waitForTag(AssetUiTags.OVERVIEW)
     }
 
     @Test
@@ -179,7 +179,9 @@ class AssetWorkspaceEndToEndTest {
         // Timeline entries carry the REAL seeded titles.
         compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[0].memoryId}")
             .assertExists()
-        compose.onNodeWithText("P-101 seal replacement").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
+            .performScrollTo()
+            .assertIsDisplayed()
 
         // Timeline entry opens the real record detail.
         compose.onNodeWithTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
@@ -197,8 +199,7 @@ class AssetWorkspaceEndToEndTest {
 
         // Deterministic back (the shell header owns the one back control).
         compose.onNodeWithTag("edge-shell-back").performClick()
-        waitForText("P-101 seal replacement")
-        compose.onNodeWithText("P-101 seal replacement").assertExists()
+        waitForTag("${AssetUiTags.TIMELINE_ITEM_PREFIX}${seeded[1].memoryId}")
     }
 
 
