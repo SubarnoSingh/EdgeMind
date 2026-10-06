@@ -39,7 +39,7 @@ class MachinesAssetStatusTest {
         )
         assertNotEquals(EdgeStatus.SYNCING, s.status)
         assertEquals(EdgeStatus.WARNING, s.status)
-        assertEquals("queued", s.label)
+        assertEquals("2 queued", s.label)
     }
 
     @Test
@@ -50,7 +50,7 @@ class MachinesAssetStatusTest {
             isOnline = true,
         )
         assertEquals(EdgeStatus.SYNCING, s.status)
-        assertEquals("syncing", s.label)
+        assertEquals("Syncing", s.label)
     }
 
     @Test
@@ -61,7 +61,7 @@ class MachinesAssetStatusTest {
             isOnline = false,
         )
         assertEquals(EdgeStatus.OFFLINE, s.status)
-        assertEquals("queued offline", s.label)
+        assertEquals("2 queued, offline", s.label)
     }
 
     @Test
@@ -72,7 +72,7 @@ class MachinesAssetStatusTest {
             isOnline = true,
         )
         assertEquals(EdgeStatus.WARNING, s.status)
-        assertEquals("conflict", s.label)
+        assertEquals("Conflict to review", s.label)
     }
 
     @Test
@@ -86,7 +86,7 @@ class MachinesAssetStatusTest {
         )
         assertNotEquals(EdgeStatus.SYNCING, s.status)
         assertEquals(EdgeStatus.HEALTHY, s.status)
-        assertEquals("ready", s.label)
+        assertEquals("Nothing queued", s.label)
     }
 
     @Test
@@ -97,7 +97,7 @@ class MachinesAssetStatusTest {
             isOnline = true,
         )
         assertEquals(EdgeStatus.NEUTRAL, s.status)
-        assertEquals("no records", s.label)
+        assertEquals("No records yet", s.label)
     }
 
     @Test
@@ -113,5 +113,13 @@ class MachinesAssetStatusTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun machineDescriptionDropsARepeatedTagOnly() {
+        assertEquals("Cavitation check", describe("P-101 Cavitation check", "p-101"))
+        assertEquals("Seal kit", describe("P101: Seal kit", "p101"))
+        assertEquals("Coolant pump", describe("Coolant pump", "p102"))
+        assertEquals(null, describe("P102", "p102"))
     }
 }

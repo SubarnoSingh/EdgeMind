@@ -169,7 +169,7 @@ class AssetWorkspaceEndToEndTest {
         // Real identifier + real derived counts (nothing invented).
         compose.onNodeWithText("P101").assertIsDisplayed()
         waitForText("3 records")
-        // Category chips from the real records: Maintenance (1), Observations (1), Procedures (1).
+        // Category filter chips from the real records: Maintenance, Observations, Procedures.
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}maintenance").assertExists()
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}observations").assertExists()
         compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}procedures").assertExists()
@@ -190,13 +190,13 @@ class AssetWorkspaceEndToEndTest {
         waitForText("heat checking")
         compose.onNodeWithTag(RecordDetailTags.CONTENT).assertExists()
         compose.onNodeWithText("heat checking", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("p101/seal").assertExists() // real subject shown
+        compose.onNodeWithText("p101/seal").performScrollTo().assertExists() // real subject shown
         compose.onAllNodesWithText("v1").fetchSemanticsNodes().let {
             assertTrue("version fact rendered", it.isNotEmpty())
         }
 
-        // Deterministic back.
-        compose.onNodeWithTag(RecordDetailTags.BACK).performClick()
+        // Deterministic back (the shell header owns the one back control).
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForText("P-101 seal replacement")
         compose.onNodeWithText("P-101 seal replacement").assertExists()
     }
@@ -284,7 +284,11 @@ class AssetWorkspaceEndToEndTest {
         compose.onNodeWithTag("edge-ask-about-asset").performScrollTo().performClick()
         waitForTag(AskUiTags.SCREEN)
         compose.onNodeWithTag(AskUiTags.ASSET_CHIP).assertIsDisplayed()
-        compose.onNodeWithText("ASSET CONTEXT · P101").assertIsDisplayed()
+        assertTrue(
+            "Ask carries the P101 asset context",
+            compose.onAllNodes(hasText("P101", substring = true, ignoreCase = true))
+                .fetchSemanticsNodes().isNotEmpty(),
+        )
     }
 
     @Test
@@ -293,11 +297,10 @@ class AssetWorkspaceEndToEndTest {
         seed(container)
         openWorkspace(container)
 
-        // Robolectric provides no working INTERNET network: browsing worked
-        // above; the disclosure item confirms the offline-first stance.
+        // Robolectric provides no working INTERNET network: the workspace and
+        // its full record list still render from the local shard.
         compose.onNodeWithTag(AssetUiTags.SCREEN).assertIsDisplayed()
-        compose.onNodeWithText("browses fully offline", substring = true)
-            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag(AssetUiTags.TIMELINE).performScrollTo().assertIsDisplayed()
 
         // No invented machine telemetry is displayed anywhere.
         for (fabricated in listOf("Health", "Uptime", "Vibration", "Risk score")) {

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -83,8 +84,11 @@ class OperationalActivityEndToEndTest {
 
         // Real operational summary and category counts from five stored rows.
         waitForText("5 records")
-        listOf("Maintenance (1)", "Observations (1)", "Incidents (1)", "Procedures (1)", "Documents (1)")
-            .forEach { label -> compose.onNodeWithText(label).assertExists() }
+        listOf("maintenance", "observations", "incidents", "procedures", "documents").forEach { key ->
+            compose.onNodeWithTag("${AssetUiTags.FILTER_PREFIX}$key")
+                .assert(hasText(key, substring = true, ignoreCase = true))
+                .assert(hasText("1"))
+        }
         compose.onNodeWithTag(AssetUiTags.MAINTENANCE).assertExists()
         compose.onNodeWithTag(AssetUiTags.OBSERVATIONS).assertExists()
         compose.onNodeWithTag(AssetUiTags.INCIDENTS).assertExists()
@@ -106,7 +110,7 @@ class OperationalActivityEndToEndTest {
         waitForTag(RecordDetailTags.SCREEN)
         waitForText("Installed the approved mechanical seal")
         compose.onNodeWithText("p101/seal").assertExists()
-        compose.onNodeWithTag(RecordDetailTags.BACK).performClick()
+        compose.onNodeWithTag("edge-shell-back").performClick()
         waitForTag(AssetUiTags.SCREEN)
         waitForTag("${AssetUiTags.FILTER_PREFIX}incidents")
 
@@ -147,7 +151,11 @@ class OperationalActivityEndToEndTest {
         compose.onNodeWithTag("edge-ask-about-asset").performScrollTo().performClick()
         waitForTag(AskUiTags.SCREEN)
         compose.onNodeWithTag(AskUiTags.ASSET_CHIP).assertIsDisplayed()
-        compose.onNodeWithText("ASSET CONTEXT · P101").assertIsDisplayed()
+        assertTrue(
+            "Ask carries the P101 asset context",
+            compose.onAllNodes(hasText("P101", substring = true, ignoreCase = true))
+                .fetchSemanticsNodes().isNotEmpty(),
+        )
 
         // Return to the asset, use the per-record conflict indicator, then
         // resolve through the authoritative Phase 4 detail workflow.

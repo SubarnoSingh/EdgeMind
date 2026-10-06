@@ -340,7 +340,7 @@ class AssetWorkspacePhase3Test {
 
         // Refreshed view contains the new record through the normal read path.
         val state = machine.uiState.value
-        assertEquals("Saved to local memory for P101.", state.composer.createdMessage)
+        assertEquals("Saved to P101.", state.composer.createdMessage)
         val data = (state.data as LoadableState.Ready).value
         assertEquals(listOf("made-0"), data.records.map { it.memoryId })
     }
@@ -353,7 +353,7 @@ class AssetWorkspacePhase3Test {
 
         machine.openComposer()
         machine.submitComposer() // blank title AND content
-        assertEquals("A title or description is required.", machine.uiState.value.composer.error)
+        assertEquals("Add a title or a few words about what happened.", machine.uiState.value.composer.error)
         assertNull(repo.lastInput)
 
         machine.onComposerTitleChange("ok")

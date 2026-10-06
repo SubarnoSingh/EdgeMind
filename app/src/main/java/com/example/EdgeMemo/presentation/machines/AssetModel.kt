@@ -152,13 +152,13 @@ object AssetModel {
      *  PROCEDURE → procedures · DOCUMENT → documents
      *  NOTE / CLOUD_KNOWLEDGE → other knowledge.
      */
-    enum class AssetRecordCategory(val label: String) {
-        MAINTENANCE("Maintenance"),
-        OBSERVATIONS("Observations"),
-        INCIDENTS("Incidents"),
-        PROCEDURES("Procedures"),
-        DOCUMENTS("Documents"),
-        OTHER("Other"),
+    enum class AssetRecordCategory(val label: String, val singular: String) {
+        MAINTENANCE("Maintenance", "Maintenance"),
+        OBSERVATIONS("Observations", "Observation"),
+        INCIDENTS("Incidents", "Incident"),
+        PROCEDURES("Procedures", "Procedure"),
+        DOCUMENTS("Documents", "Document"),
+        OTHER("Other", "Other"),
     }
 
     fun categoryOf(type: MemoryType): AssetRecordCategory = when (type) {
